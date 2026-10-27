@@ -93,9 +93,6 @@ def main():
 
 
 
-    
-
-
             
 if __name__=="__main__":
     print(parse_request(b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"))
