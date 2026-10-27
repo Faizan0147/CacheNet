@@ -45,6 +45,40 @@ def handle_client(conn,addr):
                     
             print("Request: ",request)
             print("Address: ",addr)
+def parse_request(raw):
+    """
+    raw: the request bytes up to and including the blank line.
+    Return (method, path, version, headers) or raise ValueError for a malformed request.
+    """
+
+    info=raw.split(b"\r\n") #extracting request line(method,path and version) and headers from the request
+    if not info or not info[0]:#if request is empty or request line is missing 
+        raise ValueError("Missing request line")
+    parts=info[0].split(b" ") #extracting method,path and version from request line
+    if len(parts)!=3:
+        raise ValueError("Missing method, path or version from the request line") #if any of that is missing raise VAluerror
+
+    method,path,version=info[0].split(b" ")
+
+    headers={} #collecting headers into a dictionary
+    for line in info[1:]: #everything except for the request line
+        
+        if line==b"":   
+            break
+        if b":" not in line:
+            raise ValueError("Malformed header line")
+
+            
+        key,value=line.split(b":",1)
+        headers[key.strip().lower()]=value.strip()
+
+    return {
+            "method":method,
+            "path":path,
+            "version":version,
+            "headers":headers}
+
+
 
 def main():
     with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as server:
@@ -56,8 +90,16 @@ def main():
             conn,addr=server.accept()
             threading.Thread(target=handle_client,args=(conn,addr),daemon=True).start()
 
+
+
+
+    
+
+
             
 if __name__=="__main__":
+    print(parse_request(b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+    print(parse_request(b"GET /index.html\r\n\r\n"))
     main()
 
 
