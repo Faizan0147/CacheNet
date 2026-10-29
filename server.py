@@ -91,12 +91,31 @@ def main():
             threading.Thread(target=handle_client,args=(conn,addr),daemon=True).start()
 
 
+def build_response(status_code, reason, content_type, body, extra_headers=None):
+    """
+    Return the full HTTP response as bytes: status line, headers, blank line, body.
+    body must be bytes. Content-Length is computed from it.
+    extra_headers: optional list of (name, value) string pairs, e.g. [("Allow", "GET, HEAD")].
+    """
+  
+    status_line=f'HTTP/1.1 {status_code} {reason}'
+    response=[status_line]
+    response.append(f"Content-Type: {content_type}")
+    response.append(f"Content-Length: {len(body)}")
+    response.append(f"Connection: keep-alive")
+    if extra_headers:
+        for name,value in extra_headers:
+            response.append(f"{name}: {value}")
+
+    response_block="\r\n".join(response)+"\r\n\r\n"
+
+    full_response=response_block.encode("utf-8")+body
 
 
+    return full_response
             
 if __name__=="__main__":
-    print(parse_request(b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"))
-    print(parse_request(b"GET /index.html\r\n\r\n"))
+    
     main()
 
 
