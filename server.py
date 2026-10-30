@@ -28,23 +28,34 @@ def read_requests(conn,buffer):
         if not new_data:#handle explicit client connection
             return None,buffer #the client closed the connection without sending a full header
 
-        buffer.extend(new_data) #append the freshly recieved bytes to our streaming buffer and loop again
+        buffer=buffer+new_data #append the freshly recieved bytes to our streaming buffer and loop again
 
 
-def handle_client(conn,addr):
+
+def handle_client(conn, addr):
     """Calls read_requests then print the request and the address, Stop the loop when read_requests reports 
-        client closed"""
-    buffer=bytearray()
+#         client closed"""
+    buffer = b""
     with conn:
         while True:
-            
-            request,buffer=read_requests(conn,buffer)
+            request, buffer = read_requests(conn, buffer)
             if request is None:
-                print("Client disconnected",buffer)
+                print("Client disconnected:", addr)
                 break
+
+            try:
+                parsed = parse_request(request)
+            except ValueError as e:
+                print("Bad request:", e)
+                conn.sendall(build_response(400, "Bad Request", "text/plain", b"Bad Request"))
+                continue
+
+            conn.sendall(handle_request(parsed))
                     
-            print("Request: ",request)
-            print("Address: ",addr)
+            
+
+        
+    
 def parse_request(raw):
     """
     raw: the request bytes up to and including the blank line.
@@ -165,6 +176,33 @@ def resolve_path(url_path):
 
     return normalized_path
 
+def handle_request(parsed):
+    method = parsed["method"]
+    if method not in (b"GET", b"HEAD"):
+        #1: 405 response with extra_headers=[("Allow", "GET, HEAD")]
+
+        return build_response(405,"Method Not Allowed","text/plain",b"Method Not Allowed",extra_headers=[("Allow","GET,HEAD")])
+        
+        
+
+    # : call resolve_path(parsed["path"]).
+    #         If it returns None, return a 404 response
+    path=resolve_path(parsed["path"])
+    if not path:
+        return build_response(404,"Not found","text/plain",b"Not found",extra_headers=[("Allow","GET,HEAD")])
+    
+
+    #  read the file in binary mode: open(path, "rb").read()
+    with open (path,"rb") as f:
+        body=f.read()
+
+    # \ for GET, return build_response(200, "OK", "text/html", body).
+    #         For HEAD, build the same response, then drop the body.
+    #        
+    full = build_response(200, "OK", "text/html", body)
+    if method==b"HEAD":
+        return full[: full.find(b"\r\n\r\n") + 4]
+    return full
     
 if __name__=="__main__":
     
