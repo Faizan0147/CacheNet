@@ -98,22 +98,74 @@ def build_response(status_code, reason, content_type, body, extra_headers=None):
     extra_headers: optional list of (name, value) string pairs, e.g. [("Allow", "GET, HEAD")].
     """
   
-    status_line=f'HTTP/1.1 {status_code} {reason}'
+    status_line=f'HTTP/1.1 {status_code} {reason}' # creating the status line with status code and reason
     response=[status_line]
     response.append(f"Content-Type: {content_type}")
     response.append(f"Content-Length: {len(body)}")
     response.append(f"Connection: keep-alive")
     if extra_headers:
         for name,value in extra_headers:
-            response.append(f"{name}: {value}")
+            response.append(f"{name}: {value}")  #extra headers wxist as tuples
 
-    response_block="\r\n".join(response)+"\r\n\r\n"
+    response_block="\r\n".join(response)+"\r\n\r\n" #joining everything with a blankline
 
-    full_response=response_block.encode("utf-8")+body
+    full_response=response_block.encode("utf-8")+body #encoding in byte form
 
 
     return full_response
-            
+
+import os
+
+DOC_ROOT = os.path.abspath("www")
+import urllib.parse
+from pathlib import Path
+def resolve_path(url_path):
+    """
+    url_path: the path from the request line, as bytes, e.g. b"/index.html".
+    Return the absolute file path under DOC_ROOT, or None if the path is unsafe
+    or the file does not exist.
+    """
+    #  1: decode url_path to a string. Map b"/" to "index.html".
+    try:
+        
+        decoded_path = urllib.parse.unquote(url_path.decode('utf-8'))
+
+    except UnicodeDecodeError:
+        return None
+    
+    
+    # 2. Map the root path b"/" (or an empty string) to "index.html"
+    if decoded_path == "/" or decoded_path == "":
+        decoded_path = "/index.html"
+
+
+   
+    #  strip the leading "/" so the path is relative to DOC_ROOT.
+    relative=decoded_path.lstrip("/")
+
+    #
+    # 3: build the full path with os.path.join(DOC_ROOT, relative),
+    #         then normalize it with os.path.abspath.
+
+    full_path=os.path.join(DOC_ROOT,relative)
+    normalized_path=os.path.abspath(full_path)
+    #
+    #4: check that the normalized path still starts with DOC_ROOT + os.sep.
+    #         If it doesn't, the path escaped the document root. Return None.
+
+    prefix=DOC_ROOT+os.sep
+
+    if not normalized_path.startswith(prefix) and normalized_path!=DOC_ROOT:
+        return None
+    #
+    #  if the file doesn't exist or isn't a regular file
+    #         (os.path.isfile), return None. Otherwise return the path.
+    if not os.path.isfile(normalized_path):
+        return None
+
+    return normalized_path
+
+    
 if __name__=="__main__":
     
     main()
