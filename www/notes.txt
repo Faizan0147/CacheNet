@@ -1,0 +1,2 @@
+CacheNet sample text object.
+Used to test text/plain responses through the caching proxy.

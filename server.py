@@ -1,8 +1,10 @@
 import socket
 import threading
 
-HOST='127.0.0.1'
-PORT=9999
+HOST='0.0.0.0' #listen on all interfaces so other hosts can connect
+PORT=8080
+MAX_AGE=30 #TTL in seconds sent to the proxy in the Max-Age header
+IDLE_TIMEOUT=15 #seconds to wait for the next request before sending 408
 
 def read_requests(conn,buffer):
     """Return (request_bytes,leftover_buffer) once a full header block is available
@@ -36,21 +38,33 @@ def handle_client(conn, addr):
     """Calls read_requests then print the request and the address, Stop the loop when read_requests reports 
 #         client closed"""
     buffer = b""
+    conn.settimeout(IDLE_TIMEOUT)
     with conn:
-        while True:
-            request, buffer = read_requests(conn, buffer)
-            if request is None:
-                print("Client disconnected:", addr)
-                break
+        try:
+            while True:
+                try:
+                    request, buffer = read_requests(conn, buffer)
+                except socket.timeout: #client sent nothing for IDLE_TIMEOUT seconds
+                    print("Idle timeout:", addr)
+                    conn.sendall(build_response(408, "Request Timeout", "text/plain", b"Request Timeout", connection="close"))
+                    break
+                if request is None:
+                    print("Client disconnected:", addr)
+                    break
 
-            try:
-                parsed = parse_request(request)
-            except ValueError as e:
-                print("Bad request:", e)
-                conn.sendall(build_response(400, "Bad Request", "text/plain", b"Bad Request"))
-                continue
+                try:
+                    parsed = parse_request(request)
+                except ValueError as e:
+                    print("Bad request:", e)
+                    conn.sendall(build_response(400, "Bad Request", "text/plain", b"Bad Request"))
+                    continue
 
-            conn.sendall(handle_request(parsed))
+                conn.sendall(handle_request(parsed))
+
+                if parsed["headers"].get(b"connection", b"").lower() == b"close": #non-persistent mode
+                    break
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError): #client dropped mid-transfer
+            print("Connection lost:", addr)
                     
             
 
@@ -102,18 +116,19 @@ def main():
             threading.Thread(target=handle_client,args=(conn,addr),daemon=True).start()
 
 
-def build_response(status_code, reason, content_type, body, extra_headers=None):
+def build_response(status_code, reason, content_type, body, extra_headers=None, connection="keep-alive"):
     """
     Return the full HTTP response as bytes: status line, headers, blank line, body.
     body must be bytes. Content-Length is computed from it.
     extra_headers: optional list of (name, value) string pairs, e.g. [("Allow", "GET, HEAD")].
+    connection: "keep-alive" or "close".
     """
-  
+
     status_line=f'HTTP/1.1 {status_code} {reason}' # creating the status line with status code and reason
     response=[status_line]
     response.append(f"Content-Type: {content_type}")
     response.append(f"Content-Length: {len(body)}")
-    response.append(f"Connection: keep-alive")
+    response.append(f"Connection: {connection}")
     if extra_headers:
         for name,value in extra_headers:
             response.append(f"{name}: {value}")  #extra headers wxist as tuples
@@ -127,7 +142,14 @@ def build_response(status_code, reason, content_type, body, extra_headers=None):
 
 import os
 
-DOC_ROOT = os.path.abspath("www")
+DOC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www") #www/ next to server.py
+
+CONTENT_TYPES = {
+    ".html": "text/html",
+    ".txt": "text/plain",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+}
 import urllib.parse
 from pathlib import Path
 def resolve_path(url_path):
@@ -178,28 +200,33 @@ def resolve_path(url_path):
 
 def handle_request(parsed):
     method = parsed["method"]
+    #echo back "close" if the client asked for a non-persistent connection
+    connection = "close" if parsed["headers"].get(b"connection", b"").lower() == b"close" else "keep-alive"
     if method not in (b"GET", b"HEAD"):
         #1: 405 response with extra_headers=[("Allow", "GET, HEAD")]
 
-        return build_response(405,"Method Not Allowed","text/plain",b"Method Not Allowed",extra_headers=[("Allow","GET,HEAD")])
-        
-        
+        return build_response(405,"Method Not Allowed","text/plain",b"Method Not Allowed",extra_headers=[("Allow","GET, HEAD")],connection=connection)
+
+
 
     # : call resolve_path(parsed["path"]).
     #         If it returns None, return a 404 response
     path=resolve_path(parsed["path"])
     if not path:
-        return build_response(404,"Not found","text/plain",b"Not found",extra_headers=[("Allow","GET,HEAD")])
-    
+        return build_response(404,"Not Found","text/plain",b"Not Found",connection=connection)
+
 
     #  read the file in binary mode: open(path, "rb").read()
     with open (path,"rb") as f:
         body=f.read()
 
-    # \ for GET, return build_response(200, "OK", "text/html", body).
+    # pick Content-Type from the file extension
+    content_type=CONTENT_TYPES.get(os.path.splitext(path)[1].lower(),"application/octet-stream")
+
+    # \ for GET, return build_response(200, "OK", content_type, body).
     #         For HEAD, build the same response, then drop the body.
-    #        
-    full = build_response(200, "OK", "text/html", body)
+    #
+    full = build_response(200, "OK", content_type, body, extra_headers=[("Max-Age", str(MAX_AGE))], connection=connection)
     if method==b"HEAD":
         return full[: full.find(b"\r\n\r\n") + 4]
     return full
