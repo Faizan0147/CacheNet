@@ -1,8 +1,12 @@
-import socket
-import threading
+import os, sys, socket, threading, time, mimetypes
 
-HOST='127.0.0.1'
-PORT=9999
+HOST = "0.0.0.0"
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9999
+VERSION = b"CNTP/1.0"
+DOC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www")
+LOG_LOCK = threading.Lock()
+class VersionError(ValueError):
+    pass
 
 def read_requests(conn,buffer):
     """Return (request_bytes,leftover_buffer) once a full header block is available
@@ -30,27 +34,50 @@ def read_requests(conn,buffer):
 
         buffer=buffer+new_data #append the freshly recieved bytes to our streaming buffer and loop again
 
-
+def log_request(addr, request_line, status, nbytes):
+    line = f'{time.strftime("%Y-%m-%d %H:%M:%S")} {addr[0]}:{addr[1]} "{request_line}" {status} {nbytes}'
+    print(line)
+    with LOG_LOCK:
+        with open("server.log", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
 
 def handle_client(conn, addr):
     """Calls read_requests then print the request and the address, Stop the loop when read_requests reports 
 #         client closed"""
     buffer = b""
+    conn.settimeout(15)
     with conn:
-        while True:
-            request, buffer = read_requests(conn, buffer)
-            if request is None:
-                print("Client disconnected:", addr)
-                break
+        try:
 
-            try:
-                parsed = parse_request(request)
-            except ValueError as e:
-                print("Bad request:", e)
-                conn.sendall(build_response(400, "Bad Request", "text/plain", b"Bad Request"))
-                continue
+            while True:
+                try:
+                    request, buffer = read_requests(conn, buffer)
+                except socket.timeout:
+                    response=build_response(408,"Request Timeout","text/plain",b"Request Timeout")
+                    conn.sendall(response)
+                    log_request(addr,"-",408,len(response))
+                    break
+                if request is None:
+                    print("Client disconnected:", addr)
+                    break
+                request_line=request.split(b"\r\n",1)[0].decode("latin-1","replace")
+                try:
+                    parsed = parse_request(request)
+                    response=handle_request(parsed)
+                except VersionError:
+                    response=build_response(505,"Version Not supported","text/plain",b"Version Not supported")
+                except ValueError as e:
+                    print("Bad request:", e)
+                    response=build_response(400, "Bad Request", "text/plain", b"Bad Request")
 
-            conn.sendall(handle_request(parsed))
+                status=int(response.split(b" ",2)[1])
+                conn.sendall(response)
+                log_request(addr,request_line,status,len(response))
+
+        except OSError as e:
+            print("Connection error",addr,e)
+
+                    
                     
             
 
@@ -71,24 +98,25 @@ def parse_request(raw):
 
     method,path,version=info[0].split(b" ")
 
-    headers={} #collecting headers into a dictionary
-    for line in info[1:]: #everything except for the request line
-        
-        if line==b"":   
+    if version != VERSION:
+        raise VersionError("unsupported version")
+
+    headers = {}
+    for line in info[1:]:
+        if line == b"":
             break
         if b":" not in line:
             raise ValueError("Malformed header line")
-
-            
-        key,value=line.split(b":",1)
-        headers[key.strip().lower()]=value.strip()
-
+        name, value = line.split(b":", 1)
+        name = name.strip().lower()
+        if name == b"content-length" and name in headers:
+            raise ValueError("duplicate Content-Length")
+        headers[name] = value.strip()
     return {
-            "method":method,
-            "path":path,
-            "version":version,
-            "headers":headers}
-
+        "method":method,
+        "path":path,
+        "version":version,
+        "headers":headers}
 
 
 def main():
@@ -109,7 +137,7 @@ def build_response(status_code, reason, content_type, body, extra_headers=None):
     extra_headers: optional list of (name, value) string pairs, e.g. [("Allow", "GET, HEAD")].
     """
   
-    status_line=f'HTTP/1.1 {status_code} {reason}' # creating the status line with status code and reason
+    status_line = f"CNTP/1.0 {status_code} {reason}" # creating the status line with status code and reason
     response=[status_line]
     response.append(f"Content-Type: {content_type}")
     response.append(f"Content-Length: {len(body)}")
@@ -137,6 +165,7 @@ def resolve_path(url_path):
     or the file does not exist.
     """
     #  1: decode url_path to a string. Map b"/" to "index.html".
+    url_path = url_path.split(b"?", 1)[0]
     try:
         
         decoded_path = urllib.parse.unquote(url_path.decode('utf-8'))
@@ -189,7 +218,7 @@ def handle_request(parsed):
     #         If it returns None, return a 404 response
     path=resolve_path(parsed["path"])
     if not path:
-        return build_response(404,"Not found","text/plain",b"Not found",extra_headers=[("Allow","GET,HEAD")])
+            return build_response(404, "Not Found", "text/plain", b"Not Found")
     
 
     #  read the file in binary mode: open(path, "rb").read()
@@ -199,10 +228,15 @@ def handle_request(parsed):
     # \ for GET, return build_response(200, "OK", "text/html", body).
     #         For HEAD, build the same response, then drop the body.
     #        
-    full = build_response(200, "OK", "text/html", body)
+    ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    full = build_response(200, "OK", ctype, body, extra_headers=[("Max-Age", "60")])
     if method==b"HEAD":
         return full[: full.find(b"\r\n\r\n") + 4]
     return full
+
+
+
+
     
 if __name__=="__main__":
     
