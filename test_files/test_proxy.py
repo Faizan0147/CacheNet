@@ -14,7 +14,7 @@ import proxy
 
 ORIGIN_PORT=8180
 PROXY_PORT=9190
-SLOW_PORT,HALF_PORT,NO_MAX_AGE_PORT=8181,8182,8183
+SLOW_PORT,HALF_PORT,NO_MAX_AGE_PORT,HTTP_PORT=8181,8182,8183,8184
 
 # short timings so the test finishes quickly
 server.PORT=ORIGIN_PORT
@@ -44,10 +44,14 @@ def slow(conn):
     time.sleep(5)
 
 def half_body(conn):
-    conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nonly-part")
+    conn.sendall(b"CNTP/1.0 200 OK\r\nContent-Length: 100\r\n\r\nonly-part")
     conn.close()
 
 def no_max_age(conn):
+    conn.sendall(b"CNTP/1.0 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nhi")
+    conn.close()
+
+def http_version(conn):
     conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nhi")
     conn.close()
 
@@ -70,7 +74,7 @@ def request(method,path,s=None,extra=b""):
     """Send one request (on a new connection unless s is given) and return the response"""
     own=s is None
     s=s or socket.create_connection(("127.0.0.1",PROXY_PORT),timeout=10)
-    s.sendall(method+b" "+path+b" HTTP/1.1\r\nHost: proxy\r\n"+extra+b"\r\n")
+    s.sendall(method+b" "+path+b" CNTP/1.0\r\nHost: proxy\r\n"+extra+b"\r\n")
     result=recv_response(s,method)
     if own:
         s.close()
@@ -90,7 +94,7 @@ def main():
     sys.argv=["proxy.py","--port",str(PROXY_PORT),"--origin-port",str(ORIGIN_PORT),"--ttl","60"]
     threading.Thread(target=server.main,daemon=True).start()
     threading.Thread(target=proxy.main,daemon=True).start()
-    for port,reply in [(SLOW_PORT,slow),(HALF_PORT,half_body),(NO_MAX_AGE_PORT,no_max_age)]:
+    for port,reply in [(SLOW_PORT,slow),(HALF_PORT,half_body),(NO_MAX_AGE_PORT,no_max_age),(HTTP_PORT,http_version)]:
         threading.Thread(target=fake_origin,args=(port,reply),daemon=True).start()
     time.sleep(1)
 
@@ -116,6 +120,9 @@ def main():
     s=socket.create_connection(("127.0.0.1",PROXY_PORT),timeout=10)
     s.sendall(b"GARBAGE\r\n\r\n"); st,_,_=recv_response(s); s.close()
     check("Malformed request returns 400",st==400)
+    s=socket.create_connection(("127.0.0.1",PROXY_PORT),timeout=10)
+    s.sendall(b"GET / HTTP/1.1\r\nHost: proxy\r\n\r\n"); st,_,_=recv_response(s); s.close()
+    check("Non-CNTP request returns 505",st==505)
     st,h,b=request(b"GET",b"/large.txt");       check("Large body arrives complete",len(b)==int(h[b"content-length"]),f"({len(b)} bytes)")
     st,h,_=request(b"GET",b"/logo.png");        check("Content-Type passed through",h.get(b"content-type")==b"image/png")
 
@@ -125,7 +132,7 @@ def main():
     check("Connection: close is honoured",h.get(b"connection")==b"close" and s.recv(1)==b""); s.close()
 
     s=socket.create_connection(("127.0.0.1",PROXY_PORT),timeout=10)
-    s.sendall(b"".join(b"GET /"+p+b" HTTP/1.1\r\nHost: proxy\r\n\r\n" for p in (b"about.html",b"notes.txt",b"logo.png")))
+    s.sendall(b"".join(b"GET /"+p+b" CNTP/1.0\r\nHost: proxy\r\n\r\n" for p in (b"about.html",b"notes.txt",b"logo.png")))
     statuses=[recv_response(s)[0] for _ in range(3)]; s.close()
     check("3 pipelined requests get 3 responses",statuses==[200,200,200])
 
@@ -146,7 +153,7 @@ def main():
     check("Idle client gets 408 then close",st==408 and closed,f"(after {time.time()-start:.1f}s)")
 
     s=socket.create_connection(("127.0.0.1",PROXY_PORT),timeout=10)
-    s.sendall(b"GET /large.txt HTTP/1.1\r\n\r\n")
+    s.sendall(b"GET /large.txt CNTP/1.0\r\n\r\n")
     s.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,b"\x01\x00\x00\x00\x00\x00\x00\x00"); s.close() #reset
     time.sleep(0.5)
     st,_,_=request(b"GET",b"/");                check("Proxy still serves after a client reset",st==200)
@@ -158,6 +165,9 @@ def main():
                                (HALF_PORT,502,"Incomplete origin response returns 502")]:
         proxy.ORIGIN_PORT=port
         st,_,_=request(b"GET",b"/x");           check(name,st==expected)
+    proxy.ORIGIN_PORT=HTTP_PORT
+    st,_,_=request(b"GET",b"/z")
+    st2,_,_=request(b"GET",b"/z");              check("Non-CNTP origin response returns 502 and is not cached",st==st2==502)
     proxy.ORIGIN_PORT=NO_MAX_AGE_PORT
     request(b"GET",b"/y")
     st,h,_=request(b"GET",b"/y");               check("No Max-Age falls back to --ttl (cached)",xcache(h)=="HIT")

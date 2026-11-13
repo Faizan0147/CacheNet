@@ -30,7 +30,7 @@ CacheNet/
     ├── test_pipeline.py   # Member 1: two pipelined requests to the origin
     ├── test_split.py      # Member 1: request split across two packets
     ├── scratch.py         # Member 1: scratch checks
-    └── test_proxy.py      # Member 2: automated proxy test suite (24 checks)
+    └── test_proxy.py      # Member 2: automated proxy test suite (26 checks)
 ```
 
 ---
@@ -39,10 +39,10 @@ CacheNet/
 
 ## Protocol (CNTP/1.0)
 
-Text-based, HTTP-style messages over TCP. Each message is a start line, header lines ending in CRLF, a blank line, and an optional body whose length is given by `Content-Length`. There is no chunked encoding, so `Content-Length` is the only way the receiver knows where the body ends. The version string on the wire stays `HTTP/1.1` so `curl.exe` can be used for testing.
+Text-based, HTTP-style messages over TCP. Each message is a start line, header lines ending in CRLF, a blank line, and an optional body whose length is given by `Content-Length`. There is no chunked encoding, so `Content-Length` is the only way the receiver knows where the body ends. The version token on every request and response is `CNTP/1.0`.
 
 ```
-GET /index.html HTTP/1.1\r\n            HTTP/1.1 200 OK\r\n
+GET /index.html CNTP/1.0\r\n            CNTP/1.0 200 OK\r\n
 Host: 192.168.1.20:9090\r\n             Content-Type: text/html\r\n
 Connection: keep-alive\r\n              Content-Length: 30\r\n
 \r\n                                     Connection: keep-alive\r\n
@@ -74,6 +74,7 @@ Connection: keep-alive\r\n              Content-Length: 30\r\n
 | 400 Bad Request | both | Malformed request line or header |
 | 404 Not Found | origin; proxy for PURGE | File missing or outside `www/`; PURGE of a path that isn't cached |
 | 405 Method Not Allowed | both | Origin allows `GET, HEAD`; proxy allows `GET, HEAD, PURGE` |
+| 505 Version Not supported | both | Request line version is not `CNTP/1.0` |
 | 408 Request Timeout | both | Client idle for 15 s; the connection is then closed |
 | 502 Bad Gateway | proxy | Origin unreachable, closed early, or sent a malformed or incomplete response |
 | 504 Gateway Timeout | proxy | Origin didn't answer within 5 s |
@@ -153,13 +154,15 @@ These were needed so the origin works with the proxy and matches the proposal:
 
 ## Testing (origin directly)
 
+`curl.exe` always sends `HTTP/1.1`, which this server rejects with 505. Send CNTP directly:
+
 ```powershell
-curl.exe -v http://127.0.0.1:8080/              # 200, Max-Age: 30
-curl.exe -v -I http://127.0.0.1:8080/logo.png   # HEAD, Content-Type: image/png
-curl.exe -v -X POST http://127.0.0.1:8080/      # 405, Allow: GET, HEAD
-curl.exe -v http://127.0.0.1:8080/missing.html  # 404
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',8080)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" GET /
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',8080)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" HEAD /logo.png
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',8080)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" POST /
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',8080)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" GET /missing.html
 ```
-On Windows use `curl.exe`, since `curl` in PowerShell is a different command. `test_files/test_pipeline.py` and `test_files/test_split.py` test pipelined and split requests.
+`test_files/test_pipeline.py` and `test_files/test_split.py` test pipelined and split requests.
 
 | Test | Result |
 |---|---|
@@ -242,7 +245,7 @@ Hits: 2  Misses: 3  Hit ratio: 40.0%  Bytes saved: 200010
 ```powershell
 python test_files/test_proxy.py
 ```
-Last result: **24/24 passed**
+Last result: **26/26 passed**
 
 | Area | Checks |
 |---|---|
@@ -252,12 +255,12 @@ Last result: **24/24 passed**
 | Connections | `Connection: close` honored; 3 pipelined requests get 3 responses; a stale origin connection is replaced; 5 concurrent clients; idle client → 408 and close; proxy survives a client reset |
 | Origin failures | Origin down → 502; slow origin → 504; incomplete body → 502; no `Max-Age` falls back to `--ttl` |
 
-**Manual tests with curl:**
+**Manual tests.** `curl.exe` sends `HTTP/1.1` and gets 505. Send CNTP to the proxy instead (run the GET twice: first is `X-Cache: MISS`, second is `HIT`):
 ```powershell
-curl.exe -v http://127.0.0.1:9090/              # X-Cache: MISS, then run again for HIT
-curl.exe -v -I http://127.0.0.1:9090/           # HEAD
-curl.exe -v -X PURGE http://127.0.0.1:9090/     # remove from cache
-curl.exe -v -X POST http://127.0.0.1:9090/      # 405
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',9090)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" GET /
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',9090)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" HEAD /
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',9090)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" PURGE /
+python -c "import socket,sys; m,p=sys.argv[1:]; s=socket.create_connection(('127.0.0.1',9090)); s.sendall(f'{m} {p} CNTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode()); print(s.recv(65536).decode())" POST /
 ```
 
 **Ctrl+C summary:** verified. After 5 requests (2 hits) the proxy printed `Hits: 2  Misses: 3  Hit ratio: 40.0%  Bytes saved: 200010` and exited with code 0.
