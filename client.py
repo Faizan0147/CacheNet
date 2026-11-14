@@ -7,11 +7,13 @@ import os
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 9090
 
+VERSION = "CNTP/1.0"
+
 TOTAL_REQUESTS = 10
-CSV_FILE = "performance_results.csv"
+CSV_FILE = "results/performance_results.csv"
 
 
-# Read one complete HTTP response
+# Read one complete CNTP response
 def read_one_response(client_socket, method="GET"):
 
     response = b""
@@ -42,7 +44,7 @@ def read_one_response(client_socket, method="GET"):
                 line.split(":", 1)[1].strip()
             )
 
-    # Read remaining body
+    # Read remaining body bytes
     while len(body) < content_length:
 
         data = client_socket.recv(4096)
@@ -72,7 +74,7 @@ def get_cache_status(response):
     return "N/A"
 
 
-# Send normal GET, HEAD or PURGE request
+# Send GET, HEAD or PURGE request
 def send_request(request, method="GET"):
 
     client_socket = socket.create_connection(
@@ -109,7 +111,7 @@ def send_request(request, method="GET"):
 def send_get_request():
 
     request = (
-        "GET /index.html HTTP/1.1\r\n"
+        f"GET /index.html {VERSION}\r\n"
         "Host: 127.0.0.1:9090\r\n"
         "Connection: close\r\n"
         "\r\n"
@@ -122,7 +124,7 @@ def send_get_request():
 def send_head_request():
 
     request = (
-        "HEAD /index.html HTTP/1.1\r\n"
+        f"HEAD /index.html {VERSION}\r\n"
         "Host: 127.0.0.1:9090\r\n"
         "Connection: close\r\n"
         "\r\n"
@@ -135,7 +137,7 @@ def send_head_request():
 def send_purge_request():
 
     request = (
-        "PURGE /index.html HTTP/1.1\r\n"
+        f"PURGE /index.html {VERSION}\r\n"
         "Host: 127.0.0.1:9090\r\n"
         "Connection: close\r\n"
         "\r\n"
@@ -156,20 +158,20 @@ def send_multiple_requests(persistent):
     print(f"\nStarting {mode} Performance Test")
     print(f"Total requests: {TOTAL_REQUESTS}")
 
-    # Warm up the cache before measuring
+    # Warm up cache before measuring
     warmup_socket = socket.create_connection(
         (PROXY_HOST, PROXY_PORT)
     )
 
     warmup_request = (
-        "GET /index.html HTTP/1.1\r\n"
+        f"GET /index.html {VERSION}\r\n"
         "Host: 127.0.0.1:9090\r\n"
         "Connection: close\r\n"
         "\r\n"
     )
 
     warmup_socket.sendall(warmup_request.encode())
-    read_one_response(warmup_socket)
+    read_one_response(warmup_socket, "GET")
     warmup_socket.close()
 
     # Persistent mode uses one socket
@@ -193,7 +195,7 @@ def send_multiple_requests(persistent):
         )
 
         request = (
-            "GET /index.html HTTP/1.1\r\n"
+            f"GET /index.html {VERSION}\r\n"
             "Host: 127.0.0.1:9090\r\n"
             f"Connection: {connection_type}\r\n"
             "\r\n"
@@ -203,7 +205,7 @@ def send_multiple_requests(persistent):
 
         client_socket.sendall(request.encode())
 
-        response = read_one_response(client_socket)
+        response = read_one_response(client_socket, "GET")
 
         end_time = time.perf_counter()
 
