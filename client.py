@@ -112,7 +112,7 @@ def send_get_request():
 
     request = (
         f"GET /index.html {VERSION}\r\n"
-        "Host: 127.0.0.1:9090\r\n"
+        f"Host: {PROXY_HOST}:{PROXY_PORT}\r\n"
         "Connection: close\r\n"
         "\r\n"
     )
@@ -125,7 +125,7 @@ def send_head_request():
 
     request = (
         f"HEAD /index.html {VERSION}\r\n"
-        "Host: 127.0.0.1:9090\r\n"
+        f"Host: {PROXY_HOST}:{PROXY_PORT}\r\n"
         "Connection: close\r\n"
         "\r\n"
     )
@@ -138,7 +138,7 @@ def send_purge_request():
 
     request = (
         f"PURGE /index.html {VERSION}\r\n"
-        "Host: 127.0.0.1:9090\r\n"
+        f"Host: {PROXY_HOST}:{PROXY_PORT}\r\n"
         "Connection: close\r\n"
         "\r\n"
     )
@@ -165,7 +165,7 @@ def send_multiple_requests(persistent):
 
     warmup_request = (
         f"GET /index.html {VERSION}\r\n"
-        "Host: 127.0.0.1:9090\r\n"
+        f"Host: {PROXY_HOST}:{PROXY_PORT}\r\n"
         "Connection: close\r\n"
         "\r\n"
     )
@@ -196,7 +196,7 @@ def send_multiple_requests(persistent):
 
         request = (
             f"GET /index.html {VERSION}\r\n"
-            "Host: 127.0.0.1:9090\r\n"
+            f"Host: {PROXY_HOST}:{PROXY_PORT}\r\n"
             f"Connection: {connection_type}\r\n"
             "\r\n"
         )
@@ -278,7 +278,17 @@ def save_results(results):
 # Main menu
 if __name__ == "__main__":
 
+    import argparse
+
+    parser = argparse.ArgumentParser(description="CacheNet CLI client")
+    parser.add_argument("--proxy-host", default=PROXY_HOST,
+                        help="IP of the proxy host (H2)")
+    parser.add_argument("--proxy-port", type=int, default=PROXY_PORT)
+    args = parser.parse_args()
+    PROXY_HOST, PROXY_PORT = args.proxy_host, args.proxy_port
+
     print("\n===== CacheNet CLI Client =====")
+    print(f"Proxy: {PROXY_HOST}:{PROXY_PORT}")
 
     print("1. GET Request")
     print("2. HEAD Request")
