@@ -1,7 +1,7 @@
 import os, sys, socket, threading, time, mimetypes
 
 HOST = "0.0.0.0"
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+PORT = 8080
 VERSION = b"CNTP/1.0"
 MAX_AGE = 60
 DOC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www")
@@ -253,7 +253,15 @@ def handle_request(parsed):
 
     
 if __name__=="__main__":
-    
+    import argparse
+    parser=argparse.ArgumentParser(description="CacheNet origin server")
+    parser.add_argument("port",nargs="?",type=int,help="same as --port (kept so 'python server.py 8080' still works)")
+    parser.add_argument("--port",dest="port_opt",type=int,default=PORT)
+    parser.add_argument("--max-age",type=int,default=MAX_AGE,help="Max-Age (TTL seconds) sent with every 200 response")
+    args=parser.parse_args()
+    PORT=args.port if args.port is not None else args.port_opt
+    MAX_AGE=args.max_age
+    print(f"Max-Age: {MAX_AGE}s, document root: {DOC_ROOT}")
     main()
 
 
