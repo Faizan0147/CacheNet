@@ -174,14 +174,26 @@ def send_multiple_requests(persistent):
     read_one_response(warmup_socket, "GET")
     warmup_socket.close()
 
+    # Timing includes the TCP handshake whenever a connection is opened:
+    # every request in non-persistent mode, only request 1 in persistent mode.
+    # Otherwise the two modes would look the same and the comparison is meaningless.
+
     # Persistent mode uses one socket
     if persistent:
+
+        connect_start = time.perf_counter()
 
         client_socket = socket.create_connection(
             (PROXY_HOST, PROXY_PORT)
         )
 
     for i in range(TOTAL_REQUESTS):
+
+        start_time = time.perf_counter()
+
+        if persistent and i == 0:
+
+            start_time = connect_start
 
         # Non-persistent creates a new socket per request
         if not persistent:
@@ -200,8 +212,6 @@ def send_multiple_requests(persistent):
             f"Connection: {connection_type}\r\n"
             "\r\n"
         )
-
-        start_time = time.perf_counter()
 
         client_socket.sendall(request.encode())
 
