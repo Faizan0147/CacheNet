@@ -1,12 +1,15 @@
 """Browser UI for CacheNet.
 
 Serves one page on 127.0.0.1:3000 and sends CNTP through the functions
-in client.py. server.py, proxy.py, and client.py are not modified.
+in client.py.
 
-Start the origin and the proxy first, from this folder:
+Single machine (development):
     python server.py
     python proxy.py
     python ui.py
+
+Three hosts (run ui.py on the client host H3):
+    python ui.py --proxy-host <H2-IP> --origin-host <H1-IP>
 """
 
 import base64
@@ -23,6 +26,7 @@ import client
 
 UI_HOST = "127.0.0.1"
 UI_PORT = 3000
+ORIGIN_HOST = "127.0.0.1"  # only used for the status pill
 ORIGIN_PORT = 8080
 
 PAGE = """<!DOCTYPE html>
@@ -82,7 +86,7 @@ PAGE = """<!DOCTYPE html>
 <header>
   <div>
     <h1>CacheNet</h1>
-    <p class="sub">Browser client. Requests go through client.py to the proxy on port 9090.</p>
+    <p class="sub">Browser client. Requests go through client.py to the caching proxy.</p>
   </div>
   <div class="pills">
     <span class="pill" id="origin">Origin</span>
@@ -100,7 +104,7 @@ PAGE = """<!DOCTYPE html>
       <button data-method="HEAD" class="alt">HEAD</button>
       <button data-method="PURGE" class="alt">PURGE</button>
     </div>
-    <p class="note">Same CNTP request shape as the CLI: Host 127.0.0.1:9090, Connection close.</p>
+    <p class="note">Same CNTP request shape as the CLI: Host set to the proxy address, Connection close.</p>
   </section>
   <section>
     <h2>Response</h2>
@@ -243,16 +247,20 @@ health();
 """
 
 
-def _port_open(port):
+def _port_open(host, port):
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.4):
+        with socket.create_connection((host, port), timeout=0.4):
             return True
     except OSError:
         return False
 
 
 def health():
-    return {"ok": True, "origin": _port_open(ORIGIN_PORT), "proxy": _port_open(client.PROXY_PORT)}
+    return {
+        "ok": True,
+        "origin": _port_open(ORIGIN_HOST, ORIGIN_PORT),
+        "proxy": _port_open(client.PROXY_HOST, client.PROXY_PORT),
+    }
 
 
 def _check_path(path):
@@ -379,7 +387,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self._json({"ok": False, "error": str(exc)}, 400)
         except OSError:
-            self._json({"ok": False, "error": "Proxy is not accepting connections on 127.0.0.1:9090."}, 502)
+            self._json({"ok": False, "error": f"Proxy is not accepting connections on {client.PROXY_HOST}:{client.PROXY_PORT}."}, 502)
 
     def _body(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -398,10 +406,25 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global UI_HOST, UI_PORT, ORIGIN_HOST, ORIGIN_PORT
+    import argparse
+
+    parser = argparse.ArgumentParser(description="CacheNet browser UI")
+    parser.add_argument("--proxy-host", default=client.PROXY_HOST, help="IP of the proxy host (H2)")
+    parser.add_argument("--proxy-port", type=int, default=client.PROXY_PORT)
+    parser.add_argument("--origin-host", default=ORIGIN_HOST, help="IP of the origin host (H1), for the status pill")
+    parser.add_argument("--origin-port", type=int, default=ORIGIN_PORT)
+    parser.add_argument("--ui-host", default=UI_HOST, help="address the UI itself listens on")
+    parser.add_argument("--ui-port", type=int, default=UI_PORT)
+    args = parser.parse_args()
+    client.PROXY_HOST, client.PROXY_PORT = args.proxy_host, args.proxy_port
+    ORIGIN_HOST, ORIGIN_PORT = args.origin_host, args.origin_port
+    UI_HOST, UI_PORT = args.ui_host, args.ui_port
+
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     server = ThreadingHTTPServer((UI_HOST, UI_PORT), Handler)
     print(f"CacheNet UI on http://{UI_HOST}:{UI_PORT}")
-    print("Origin expected on 127.0.0.1:8080, proxy on 127.0.0.1:9090")
+    print(f"Origin expected on {ORIGIN_HOST}:{ORIGIN_PORT}, proxy on {client.PROXY_HOST}:{client.PROXY_PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
