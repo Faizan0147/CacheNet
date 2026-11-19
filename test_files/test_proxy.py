@@ -114,7 +114,12 @@ def main():
     st,h,_=request(b"GET",b"/notes.txt");       check("GET after PURGE * is MISS",xcache(h)=="MISS")
 
     # methods, errors, content
-    st,h,_=request(b"POST",b"/");               check("POST returns 405 with Allow",st==405 and h.get(b"allow")==b"GET, HEAD, PURGE")
+    st,h,b=request(b"STATS",b"*")
+    check("STATS returns counters and the cached entry",st==200 and b"hits:" in b and b"entry: /notes.txt" in b)
+    st,h,_=request(b"POST",b"/");               check("POST returns 405 with Allow",st==405 and h.get(b"allow")==b"GET, HEAD, PURGE, STATS")
+    s=socket.create_connection(("127.0.0.1",ORIGIN_PORT),timeout=10)
+    s.sendall(b"GET /notes.txt CNTP/1.0\r\nConnection: close\r\n\r\n"); st,h,_=recv_response(s); closed=s.recv(1)==b""; s.close()
+    check("Origin honours Connection: close",st==200 and h.get(b"connection")==b"close" and closed)
     st,h,_=request(b"GET",b"/missing.html")
     st2,h2,_=request(b"GET",b"/missing.html");  check("404 is not cached",st==st2==404 and xcache(h2)=="MISS")
     s=socket.create_connection(("127.0.0.1",PROXY_PORT),timeout=10)

@@ -54,7 +54,7 @@ def handle_client(conn, addr):
                 try:
                     request, buffer = read_requests(conn, buffer)
                 except socket.timeout:
-                    response=build_response(408,"Request Timeout","text/plain",b"Request Timeout")
+                    response=build_response(408,"Request Timeout","text/plain",b"Request Timeout",connection="close")
                     conn.sendall(response)
                     log_request(addr,"-",408,len(response))
                     break
@@ -62,8 +62,11 @@ def handle_client(conn, addr):
                     print("Client disconnected:", addr)
                     break
                 request_line=request.split(b"\r\n",1)[0].decode("latin-1","replace")
+                close=False
                 try:
                     parsed = parse_request(request)
+                    #non-persistent mode: answer, then close this connection
+                    close=parsed["headers"].get(b"connection", b"").lower()==b"close"
                     response=handle_request(parsed)
                 except VersionError:
                     response=build_response(505,"Version Not supported","text/plain",b"Version Not supported")
@@ -74,6 +77,8 @@ def handle_client(conn, addr):
                 status=int(response.split(b" ",2)[1])
                 conn.sendall(response)
                 log_request(addr,request_line,status,len(response))
+                if close:
+                    break
 
         except OSError as e:
             print("Connection error",addr,e)
@@ -125,10 +130,18 @@ def main():
         server.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
         server.bind((HOST,PORT))
         server.listen()
+        server.settimeout(1) #wake up every second so Ctrl+C works on Windows
         print(f"Listening on {HOST}:{PORT}")
-        while True:
-            conn,addr=server.accept()
-            threading.Thread(target=handle_client,args=(conn,addr),daemon=True).start()
+        try:
+            while True:
+                try:
+                    conn,addr=server.accept()
+                    conn.settimeout(None) #accepted sockets must not inherit the 1 s accept timeout
+                    threading.Thread(target=handle_client,args=(conn,addr),daemon=True).start()
+                except socket.timeout:
+                    pass
+        except KeyboardInterrupt:
+            print("\nServer stopped")
 
 
 def build_response(status_code, reason, content_type, body, extra_headers=None, connection="keep-alive"):
@@ -229,7 +242,7 @@ def handle_request(parsed):
     #         If it returns None, return a 404 response
     path=resolve_path(parsed["path"])
     if not path:
-            return build_response(404, "Not Found", "text/plain", b"Not Found")
+            return build_response(404, "Not Found", "text/plain", b"Not Found", connection=connection)
     
 
     #  read the file in binary mode: open(path, "rb").read()
@@ -242,8 +255,9 @@ def handle_request(parsed):
     # \ for GET, return build_response(200, "OK", content_type, body).
     #         For HEAD, build the same response, then drop the body.
     #        
-    ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
-    full = build_response(200, "OK", ctype, body, extra_headers=[("Max-Age", str(MAX_AGE))])
+    #the fixed table first, so every host sends the same type (mimetypes reads the Windows registry)
+    ctype = CONTENT_TYPES.get(os.path.splitext(path)[1].lower()) or mimetypes.guess_type(path)[0] or "application/octet-stream"
+    full = build_response(200, "OK", ctype, body, extra_headers=[("Max-Age", str(MAX_AGE))], connection=connection)
     if method==b"HEAD":
         return full[: full.find(b"\r\n\r\n") + 4]
     return full

@@ -5,7 +5,7 @@ import argparse
 
 HOST='0.0.0.0' #listen on all interfaces so the client host can connect
 PORT=9090
-ORIGIN_HOST='127.0.0.1' #192.168.1.10 when deployed on H1
+ORIGIN_HOST='127.0.0.1' #default for a one-machine run; pass --origin-host <H1-IP> on H2
 ORIGIN_PORT=8080
 VERSION="CNTP/1.0"
 DEFAULT_TTL=30 #used when the origin sends no Max-Age header
@@ -168,7 +168,10 @@ def forward(origin,method,path):
     for _ in range(2): #second pass always uses a fresh connection, so it returns or raises
         reused=origin["sock"] is not None
         if not reused:
-            origin["sock"]=socket.create_connection((ORIGIN_HOST,ORIGIN_PORT),timeout=ORIGIN_TIMEOUT)
+            #blocking connect, then the read timeout: a connect with timeout= on Windows can
+            #wake a timer tick late (+15-25 ms) and that delay would land in every MISS
+            origin["sock"]=socket.create_connection((ORIGIN_HOST,ORIGIN_PORT))
+            origin["sock"].settimeout(ORIGIN_TIMEOUT)
             origin["buf"]=b""
         try:
             origin["sock"].sendall(request)
@@ -190,6 +193,22 @@ def forward(origin,method,path):
         return status,reason,headers,body
 
 
+def stats_body():
+    """Body of a STATS response: one "name: value" line per counter, then one
+       "entry:" line per cached object (path, seconds of TTL left, body bytes).
+       Expired entries are skipped, the same rule a GET would apply."""
+    now=time.time()
+    with lock:
+        lines=[f"hits: {stats['hits']}",
+               f"misses: {stats['misses']}",
+               f"bytes_saved: {stats['bytes_saved']}"]
+        entries=[(k,e) for k,e in cache.items() if e["expires"]>now]
+        lines.append(f"entries: {len(entries)}")
+        for k,e in sorted(entries):
+            lines.append(f"entry: {k.decode('latin-1')} ttl={int(e['expires']-now)} bytes={len(e['body'])}")
+    return ("\r\n".join(lines)+"\r\n").encode("latin-1")
+
+
 def handle_request(parsed,origin,connection):
     """Return (response_bytes,x_cache,status) for one client request"""
     method=parsed["method"]
@@ -206,9 +225,12 @@ def handle_request(parsed,origin,connection):
             return build_response(200,"OK","text/plain",b"Purged",connection=connection),"-",200
         return build_response(404,"Not Found","text/plain",b"Not cached",connection=connection),"-",404
 
+    if method==b"STATS": #proxy-local, like PURGE: never forwarded to the origin
+        return build_response(200,"OK","text/plain",stats_body(),connection=connection),"-",200
+
     if method not in (b"GET",b"HEAD"):
         return build_response(405,"Method Not Allowed","text/plain",b"Method Not Allowed",
-                              extra_headers=[("Allow","GET, HEAD, PURGE")],connection=connection),"-",405
+                              extra_headers=[("Allow","GET, HEAD, PURGE, STATS")],connection=connection),"-",405
 
     entry=cache_get(key)
     if entry:
@@ -293,6 +315,8 @@ def main():
         server.listen()
         server.settimeout(1) #wake up every second so Ctrl+C works on Windows
         print(f"Proxy listening on {HOST}:{PORT}, origin {ORIGIN_HOST}:{ORIGIN_PORT}, default TTL {DEFAULT_TTL}s")
+        if ORIGIN_HOST in ("127.0.0.1","localhost"):
+            print("WARNING: origin is 127.0.0.1 (this machine). For a 3-host run pass --origin-host <H1-IP>.")
         try:
             while True:
                 try:
