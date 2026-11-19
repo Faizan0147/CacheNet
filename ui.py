@@ -29,6 +29,7 @@ import os
 import re
 import select
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -47,6 +48,7 @@ ORIGIN_HOST = "127.0.0.1"  # used only for the origin reachability check
 ORIGIN_PORT = 8080
 CNTP_TIMEOUT = 8
 METHODS = ("GET", "HEAD", "PURGE")
+LARGE_PATH = "/large.txt"
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
@@ -198,9 +200,11 @@ def describe(method, path, mode, raw, resp, connect_ms, xfer_ms, reused, conn_id
 
 
 def proxy_stats():
-    """Global proxy counters through the proxy's STATS method (CNTP, never forwarded to the origin)."""
+    """Global proxy counters through the proxy's STATS method (CNTP, never forwarded to the origin).
+       Also returns the address this host (H3) used for the connection."""
     sock, _, _ = _connect()
     try:
+        local = sock.getsockname()
         sock.sendall(build_request("STATS", "*", "close"))
         resp = client.read_one_response(sock, "GET")
     finally:
@@ -208,8 +212,9 @@ def proxy_stats():
     head, _, body = resp.partition(b"\r\n\r\n")
     status = head.split(b" ", 2)[1:2]
     if status != [b"200"]:
-        return {"ok": True, "supported": False, "status_line": head.split(b"\r\n", 1)[0].decode("latin-1")}
-    out = {"ok": True, "supported": True, "entries": []}
+        return {"ok": True, "supported": False, "status_line": head.split(b"\r\n", 1)[0].decode("latin-1"),
+                "h3": local[0]}
+    out = {"ok": True, "supported": True, "entries": [], "h3": local[0]}
     for line in body.decode("latin-1").splitlines():
         name, _, value = line.partition(":")
         value = value.strip()
@@ -217,12 +222,181 @@ def proxy_stats():
             m = re.match(r"(\S+) ttl=(\d+) bytes=(\d+)", value)
             if m:
                 out["entries"].append({"path": m.group(1), "ttl": int(m.group(2)), "bytes": int(m.group(3))})
-        elif name in ("hits", "misses", "bytes_saved", "entries_count", "entries"):
-            if name == "entries":
-                out["entry_count"] = int(value)
-            else:
-                out[name] = int(value)
+        elif name == "entries":
+            out["entry_count"] = int(value)
+        elif name in ("hits", "misses", "bytes_saved"):
+            out[name] = int(value)
+        elif name in ("origin", "origin_reachable", "proxy", "client"):
+            out[name] = value
     return out
+
+
+# ---------------------------------------------------------------- host setup and host check
+
+CONFIG_SOURCE = ["default"]
+HOST_RE = re.compile(r"^[A-Za-z0-9.\-:]{1,253}$")
+LOOPBACK = ("127.", "localhost", "::1")
+
+
+def _split(addr):
+    host, _, port = (addr or "").rpartition(":")
+    return host, port
+
+
+def set_config(p):
+    """Point this UI (and the benchmark runners) at a new proxy/origin without restarting."""
+    global ORIGIN_HOST, ORIGIN_PORT
+    proxy_host, origin_host = str(p.get("proxy_host", "")).strip(), str(p.get("origin_host", "")).strip()
+    try:
+        proxy_port, origin_port = int(p.get("proxy_port", 9090)), int(p.get("origin_port", 8080))
+    except (TypeError, ValueError):
+        raise ValueError("Ports must be whole numbers.")
+    for label, h in (("Proxy (H2)", proxy_host), ("Origin (H1)", origin_host)):
+        if not HOST_RE.match(h):
+            raise ValueError(f"{label} address: type an IP such as 192.168.1.20.")
+    for label, port in (("Proxy", proxy_port), ("Origin", origin_port)):
+        if not 1 <= port <= 65535:
+            raise ValueError(f"{label} port must be between 1 and 65535.")
+    with KEEP.lock:
+        KEEP.drop()  # a keep-alive connection to the old proxy must not be reused
+    client.PROXY_HOST, client.PROXY_PORT = proxy_host, proxy_port
+    ORIGIN_HOST, ORIGIN_PORT = origin_host, origin_port
+    CONFIG_SOURCE[0] = "set in the UI"
+    return config()
+
+
+def host_check():
+    """Evidence that client, proxy and origin are three separate hosts, from what each side reports."""
+    proxy = tcp_probe(client.PROXY_HOST, client.PROXY_PORT)
+    origin = tcp_probe(ORIGIN_HOST, ORIGIN_PORT)
+    checks, stats = [], None
+    if proxy["reachable"]:
+        try:
+            stats = proxy_stats()
+        except OSError as e:
+            proxy["error"] = str(e)
+    h3 = stats["h3"] if stats else None
+    h2 = _split(stats.get("proxy"))[0] if stats and stats.get("proxy") else client.PROXY_HOST
+    up_host, up_port = _split(stats.get("origin")) if stats and stats.get("origin") else (None, None)
+    h1 = ORIGIN_HOST
+
+    def add(cid, ok, text, detail=""):
+        checks.append({"id": cid, "ok": ok, "text": text, "detail": detail})
+
+    add("proxy", proxy["reachable"] and bool(stats), "Proxy (H2) answers CNTP",
+        f"{client.PROXY_HOST}:{client.PROXY_PORT}" + ("" if proxy["reachable"] else f" · {proxy.get('error', 'no answer')}"))
+    if stats and not stats.get("supported"):
+        add("stats", None, "Proxy does not answer STATS", "Update proxy.py on H2 for the full host check.")
+    if stats and stats.get("supported"):
+        add("upstream", up_host == ORIGIN_HOST and str(up_port) == str(ORIGIN_PORT),
+            "Proxy forwards misses to the origin you entered",
+            f"proxy reports origin {up_host}:{up_port}; this UI expects {ORIGIN_HOST}:{ORIGIN_PORT}")
+        add("h2h1", stats.get("origin_reachable") == "yes", "Proxy can reach its origin (H2 → H1)",
+            f"TCP connect from H2 to {up_host}:{up_port}: {stats.get('origin_reachable')}")
+    add("origin", origin["reachable"], "Origin (H1) reachable from this host",
+        f"{ORIGIN_HOST}:{ORIGIN_PORT}" + ("" if origin["reachable"] else " · allow TCP 8080 from H3 in H1's firewall (only the top-bar check needs it)"))
+    loop = [name for name, ip in (("H3", h3), ("H2", h2), ("H1", h1)) if ip and ip.startswith(LOOPBACK)]
+    add("loopback", not loop, "No role runs on loopback (127.0.0.1)",
+        "loopback: " + ", ".join(loop) if loop else "every address is a network address")
+    ips = [ip for ip in (h3, h2, h1) if ip]
+    add("distinct", len(ips) == 3 and len(set(ips)) == 3, "Three different IP addresses",
+        f"H3 {h3 or '?'} · H2 {h2 or '?'} · H1 {h1 or '?'}")
+    seen = _split(stats.get("client"))[0] if stats and stats.get("client") else None
+    if seen and h3:
+        add("nat", seen == h3, "Proxy sees this host at the same address",
+            f"proxy sees {seen}; this host used {h3}" + ("" if seen == h3 else " (NAT in between?)"))
+    required = [c for c in checks if c["id"] in ("proxy", "upstream", "h2h1", "loopback", "distinct")]
+    verdict = "three-hosts" if required and all(c["ok"] for c in required) else \
+              "local" if loop and len(loop) == 3 else "incomplete"
+    return {"ok": True, "verdict": verdict, "hosts": {"h3": h3, "h2": h2, "h1": h1},
+            "checks": checks, "checked": time.strftime("%H:%M:%S")}
+
+
+# ---------------------------------------------------------------- failure lab (client-side faults)
+
+def _raw_exchange(payload, wait=CNTP_TIMEOUT, read_limit=4096):
+    """Send raw bytes on a new connection and collect what comes back until the proxy closes or `wait` passes."""
+    sock, connect_ms, _ = _connect()
+    start = time.perf_counter()
+    got, closed = b"", False
+    sock.settimeout(wait)
+    try:
+        if payload:
+            sock.sendall(payload)
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                closed = True
+                break
+            got += chunk
+            if b"\r\n\r\n" in got:
+                head, _, body = got.partition(b"\r\n\r\n")
+                m = re.search(rb"content-length:\s*(\d+)", head, re.I)
+                if m and len(body) >= int(m.group(1)) and payload:
+                    break
+    except socket.timeout:
+        pass
+    finally:
+        sock.close()
+    return {"sent": payload.decode("latin-1"), "received": got[:read_limit].decode("latin-1", "replace"),
+            "received_bytes": len(got), "closed_by_proxy": closed,
+            "elapsed_s": round(time.perf_counter() - start, 2), "connect_ms": round(connect_ms, 2),
+            "status_line": got.split(b"\r\n", 1)[0].decode("latin-1", "replace") if got else ""}
+
+
+def _status(line):
+    parts = line.split(" ")
+    return int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+
+
+def run_fault(kind, path="/about.html"):
+    check_path(path)
+    host = f"Host: {client.PROXY_HOST}:{client.PROXY_PORT}\r\n"
+    if kind == "idle":
+        r = _raw_exchange(b"", wait=25)
+        r.update(expected="408 Request Timeout after about 15 s, then the proxy closes the connection",
+                 passed=_status(r["status_line"]) == 408 and r["closed_by_proxy"])
+    elif kind == "malformed":
+        r = _raw_exchange(b"GARBAGE\r\n\r\n")
+        r.update(expected="400 Bad Request", passed=_status(r["status_line"]) == 400)
+    elif kind == "version":
+        r = _raw_exchange(f"GET /index.html HTTP/1.1\r\n{host}\r\n".encode())
+        r.update(expected="505 Version Not Supported (only CNTP/1.0 is accepted)", passed=_status(r["status_line"]) == 505)
+    elif kind == "method":
+        r = _raw_exchange(f"DELETE /index.html CNTP/1.0\r\n{host}Connection: close\r\n\r\n".encode())
+        r.update(expected="405 Method Not Allowed with an Allow header",
+                 passed=_status(r["status_line"]) == 405 and "Allow:" in r["received"])
+    elif kind == "reset":
+        cntp_request("PURGE", LARGE_PATH)  # make it a MISS so the proxy is mid-transfer
+        sock, connect_ms, _ = _connect()
+        req = f"GET {LARGE_PATH} CNTP/1.0\r\n{host}\r\n".encode()
+        sock.sendall(req)
+        got = sock.recv(1000)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        sock.close()  # linger 0: the OS sends RST instead of FIN
+        time.sleep(0.3)
+        after = cntp_request("GET", "/index.html")
+        r = {"sent": req.decode("latin-1"), "received": got.decode("latin-1", "replace") + "\n…connection reset by client…",
+             "received_bytes": len(got), "closed_by_proxy": False, "elapsed_s": 0, "connect_ms": round(connect_ms, 2),
+             "status_line": got.split(b"\r\n", 1)[0].decode("latin-1", "replace"),
+             "followup": f"GET /index.html straight after: {after.get('status_line')} ({after.get('cache')})",
+             "expected": "Client resets mid-body; the proxy logs 'Connection lost' and keeps serving others",
+             "passed": after.get("status") == 200}
+    elif kind in ("miss", "cached"):
+        if kind == "miss":
+            cntp_request("PURGE", path)
+        start = time.perf_counter()
+        res = cntp_request("GET", path if kind == "miss" else "/index.html")
+        r = {"sent": res["request_raw"], "received": res.get("response_head_raw", ""), "received_bytes": res.get("response_bytes", 0),
+             "closed_by_proxy": True, "elapsed_s": round(time.perf_counter() - start, 2), "connect_ms": res["connect_ms"],
+             "status_line": res.get("status_line", ""), "cache": res.get("cache"),
+             "expected": "Origin up: 200 MISS. Origin stopped: 502. Origin started with --delay 6: 504 after 5 s"
+             if kind == "miss" else "200 HIT while the object is still fresh, even with the origin stopped",
+             "passed": None}
+    else:
+        raise ValueError("Unknown failure test.")
+    r.update(ok=True, kind=kind, time=time.strftime("%H:%M:%S"), target=f"{client.PROXY_HOST}:{client.PROXY_PORT}")
+    return r
 
 
 def tcp_probe(host, port):
@@ -243,11 +417,13 @@ def health():
 
 
 def config():
-    local = client.PROXY_HOST in ("127.0.0.1", "localhost") and ORIGIN_HOST in ("127.0.0.1", "localhost")
+    loops = [h.startswith(LOOPBACK) for h in (client.PROXY_HOST, ORIGIN_HOST)]
+    setup = "LOCAL LAB" if all(loops) else "PARTLY LOCAL" if any(loops) else "3-HOST SETUP"
     return {"ok": True, "version": client.VERSION, "ui": f"{UI_HOST}:{UI_PORT}",
             "proxy": {"host": client.PROXY_HOST, "port": client.PROXY_PORT},
             "origin": {"host": ORIGIN_HOST, "port": ORIGIN_PORT},
-            "setup": "LOCAL LAB" if local else "3-HOST SETUP", "python": sys.version.split()[0]}
+            "setup": setup, "source": CONFIG_SOURCE[0],
+            "python": sys.version.split()[0]}
 
 
 # ---------------------------------------------------------------- benchmarks
@@ -386,6 +562,12 @@ def route(method, target, body):
             return json_response(health())
         if method == "GET" and path == "/api/config":
             return json_response(config())
+        if method == "POST" and path == "/api/config":
+            return json_response(set_config(payload))
+        if method == "GET" and path == "/api/hostcheck":
+            return json_response(host_check())
+        if method == "POST" and path == "/api/fault":
+            return json_response(run_fault(payload.get("kind", ""), payload.get("path", "/about.html")))
         if method == "GET" and path == "/api/stats":
             return json_response(proxy_stats())
         if method == "POST" and path == "/api/request":
@@ -460,6 +642,8 @@ def main():
     client.PROXY_HOST, client.PROXY_PORT = args.proxy_host, args.proxy_port
     ORIGIN_HOST, ORIGIN_PORT = args.origin_host, args.origin_port
     UI_HOST, UI_PORT = args.ui_host, args.ui_port
+    if (args.proxy_host, args.origin_host) != ("127.0.0.1", "127.0.0.1"):
+        CONFIG_SOURCE[0] = "command line"
     os.chdir(ROOT)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:

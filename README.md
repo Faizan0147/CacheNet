@@ -57,7 +57,7 @@ Connection: keep-alive\r\n              Content-Length: 30\r\n
 | `GET` | proxy, then origin | Fetch an object |
 | `HEAD` | proxy, then origin | Headers only, with the real `Content-Length` and no body |
 | `PURGE` | proxy only | Remove `/path` from the cache, or everything with `PURGE *` |
-| `STATS` | proxy only | `STATS * CNTP/1.0`: plain-text body with `hits`, `misses`, `bytes_saved`, `entries`, then one `entry: <path> ttl=<s> bytes=<n>` line per cached object |
+| `STATS` | proxy only | `STATS * CNTP/1.0`: plain-text body of `name: value` lines: `origin` (configured upstream), `origin_reachable` (yes/no), `proxy` and `client` (the two ends of this connection), `hits`, `misses`, `bytes_saved`, `entries`, then one `entry: <path> ttl=<s> bytes=<n>` line per cached object |
 
 | Header | Set by | Meaning |
 |---|---|---|
@@ -102,6 +102,8 @@ Use `ipconfig` / `ip addr` to get the real addresses, and allow TCP ports 8080 (
 ```powershell
 python ui.py --proxy-host <H2-IP> --origin-host <H1-IP>    # then open http://127.0.0.1:3000
 ```
+You can also start it with no options and enter the H2/H1 addresses on the **Configuration** page (*Connect & check hosts*). The host check there proves the three roles are separate: the proxy's `STATS` reply reports its own address, its configured origin, whether it can reach that origin, and the address it sees for this client, and the page flags loopback, duplicate IPs or a proxy pointed at the wrong origin. The **Failure lab** runs the client-side R7 tests (idle → 408, reset mid-transfer, 400, 405, 505) and guides the host ones (stop `server.py` → 502, `python server.py --delay 6` → 504, stop `proxy.py` → refused), keeping a copyable evidence log.
+
 The browser cannot open raw TCP sockets, so it talks plain HTTP to `ui.py` on `127.0.0.1:3000` only; `ui.py` then speaks CNTP/1.0 to the proxy with the same socket code as `client.py`. Its small HTTP server is also written directly on sockets. Pages: network overview with a request trace, request lab (close or keep-alive), CNTP inspector (exact bytes sent and received), benchmark lab (runs `bench.py` and charts its CSVs), packet-evidence checklist and configuration.
 
 **Measurements and graphs (R6):**

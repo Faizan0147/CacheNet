@@ -21,6 +21,8 @@
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7z"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-fault" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.3"/></symbol>
+  <symbol id="i-hosts" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
 </svg>
 
 <div class="shell">
@@ -34,6 +36,7 @@
       <a href="#request" data-nav="request"><svg class="ico"><use href="#i-send"/></svg>Request lab</a>
       <a href="#inspector" data-nav="inspector"><svg class="ico"><use href="#i-code"/></svg>Protocol inspector</a>
       <a href="#bench" data-nav="bench"><svg class="ico"><use href="#i-gauge"/></svg>Benchmark lab</a>
+      <a href="#faults" data-nav="faults"><svg class="ico"><use href="#i-fault"/></svg>Failure lab</a>
       <a href="#evidence" data-nav="evidence"><svg class="ico"><use href="#i-wave"/></svg>Packet evidence</a>
       <a href="#config" data-nav="config"><svg class="ico"><use href="#i-sliders"/></svg>Configuration</a>
     </nav>
@@ -57,6 +60,7 @@
       </div>
     </header>
 
+    <div class="banner" id="banner" role="status" hidden></div>
     <main id="main">
       <!-- OVERVIEW -->
       <section class="page" data-page="overview" aria-labelledby="h-overview">
@@ -83,6 +87,7 @@
             <p class="last-op" id="last-op" aria-live="polite">No request yet</p>
           </div>
           <div class="topo" id="topology" role="img" aria-label="Topology: client host H3, caching proxy H2 with its cache, origin server H1"></div>
+          <div class="hc-strip" id="hc-strip" aria-live="polite"></div>
           <p class="topo-note">Replay drawn from the real response (status and X-Cache), after it arrives. It is not packet capture. Use Wireshark for that.</p>
         </div>
 
@@ -246,6 +251,37 @@
         </div>
       </section>
 
+      <!-- FAILURE LAB -->
+      <section class="page" data-page="faults" aria-labelledby="h-faults" hidden>
+        <div class="page-head">
+          <h1 id="h-faults">Failure lab</h1>
+          <p>R7: abnormal conditions and what the system does about them. Client-side faults run from here. For a host going down, act on that laptop, then use the probes below to record what the client sees.</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Client-side faults <span class="dir">run from this host</span></h2></div>
+          <div class="fault-list" id="fault-client"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Host faults <span class="dir">act on H1 or H2, observe here</span></h2></div>
+          <div class="scenarios" id="fault-hosts"></div>
+          <div class="fault-list" id="fault-probes"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Evidence log</h2>
+            <div class="row-actions">
+              <span class="muted small">This UI session</span>
+              <button class="btn" id="fault-copy" type="button"><svg class="ico"><use href="#i-copy"/></svg>Copy log</button>
+            </div>
+          </div>
+          <p class="empty" id="fault-empty">Each test you run is recorded here with the exact bytes, timing and result, ready to paste into the report next to your Wireshark capture.</p>
+          <div id="fault-log"></div>
+        </div>
+      </section>
+
       <!-- EVIDENCE -->
       <section class="page" data-page="evidence" aria-labelledby="h-evidence" hidden>
         <div class="page-head">
@@ -279,11 +315,31 @@
       <section class="page" data-page="config" aria-labelledby="h-config" hidden>
         <div class="page-head">
           <h1 id="h-config">Configuration</h1>
-          <p>What this UI is pointed at, and how to start every host. Values are read-only here. Change them with the command-line options.</p>
+          <p>Point this UI at your proxy and origin, then confirm the three roles really run on three hosts.</p>
+        </div>
+        <div class="config-grid">
+          <form class="panel setup-form" id="setup-form" autocomplete="off" novalidate>
+            <div class="panel-head"><h2>Connection setup</h2><span class="muted small" id="cfg-source"></span></div>
+            <div class="setup-fields">
+              <div class="field-group host"><label for="s-proxy-host">Proxy host (H2)</label><input id="s-proxy-host" class="field mono" inputmode="decimal" spellcheck="false" placeholder="192.168.1.20"></div>
+              <div class="field-group port"><label for="s-proxy-port">Port</label><input id="s-proxy-port" class="field mono" type="number" min="1" max="65535" value="9090"></div>
+              <div class="field-group host"><label for="s-origin-host">Origin host (H1)</label><input id="s-origin-host" class="field mono" inputmode="decimal" spellcheck="false" placeholder="192.168.1.10"></div>
+              <div class="field-group port"><label for="s-origin-port">Port</label><input id="s-origin-port" class="field mono" type="number" min="1" max="65535" value="8080"></div>
+            </div>
+            <p class="field-error" id="s-err" role="alert"></p>
+            <div class="row-actions">
+              <button class="btn btn-primary" type="submit" id="s-apply"><svg class="ico"><use href="#i-hosts"/></svg>Connect &amp; check hosts</button>
+              <button class="btn" type="button" id="s-local">Use this machine (local lab)</button>
+            </div>
+            <p class="hint">Requests, benchmarks and failure tests all use these addresses straight away. The proxy's own upstream is set on H2 (<code>--origin-host</code>); the host check confirms it matches. Last used values are remembered in this browser.</p>
+          </form>
+          <div class="panel">
+            <div class="panel-head"><h2>Host check</h2><span class="muted small" id="hc-time"></span></div>
+            <div id="hc-detail"><p class="empty">Connect to run the check.</p></div>
+          </div>
         </div>
         <div class="panel">
           <div class="table-wrap"><table class="data kv" id="cfg-table"></table></div>
-          <p class="hint">The proxy's real upstream is set on H2 with <code>--origin-host</code>. This UI's origin setting only drives the reachability check in the top bar.</p>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Run commands</h2></div>

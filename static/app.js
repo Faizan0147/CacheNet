@@ -32,7 +32,7 @@ const cacheBadge = (c) => c === "HIT" ? '<span class="badge hit">HIT</span>' : c
 const statusClass = (s) => s == null ? "bad" : s < 300 ? "ok" : s < 500 ? "warn" : "bad";
 
 /* ---------------------------------------------------------------- router */
-const PAGES = ["overview", "request", "inspector", "bench", "evidence", "config"];
+const PAGES = ["overview", "request", "inspector", "bench", "faults", "evidence", "config"];
 function route() {
   const page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
   $$(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
@@ -120,7 +120,7 @@ function drawTopology() {
   const inner = (g, b, y, h) => g.append(el("rect", { x: b[0] + 14, y: b[1] + y, width: b[2] - 28, height: h, rx: 7, class: "t-inner" }));
 
   // Client host H3: browser and ui.py live here; the browser leg is local HTTP, not CNTP.
-  const c = node("c", box.c, "Client", "H3", "this machine");
+  const c = node("c", box.c, "Client", "H3", state.hc?.hosts?.h3 || "this machine");
   inner(c, box.c, 60, vertical ? 92 : 132);
   const cx = box.c[0] + 28, cy = box.c[1] + 60;
   c.append(el("text", { x: cx, y: cy + 22, class: "t-small-mono" }, "Browser"));
@@ -699,17 +699,150 @@ document.addEventListener("click", async (e) => {
   setTimeout(() => { b.classList.remove("done"); b.querySelector("use").setAttribute("href", "#i-copy"); }, 1200);
 });
 
+/* ---------------------------------------------------------------- failure lab */
+const CLIENT_FAULTS = [
+  { kind: "idle", title: "Idle client", expect: "408 Request Timeout after ~15 s, then the proxy closes the connection", how: "Opens a TCP connection to the proxy and sends nothing.", slow: true },
+  { kind: "reset", title: "Client disconnects mid-transfer", expect: "Proxy logs \"Connection lost\" and keeps serving: the next GET returns 200", how: "PURGEs /large.txt so the proxy fetches it, reads 1 KB, then resets the connection (RST)." },
+  { kind: "malformed", title: "Malformed request", expect: "400 Bad Request", how: "Sends GARBAGE followed by a blank line." },
+  { kind: "version", title: "Wrong protocol version", expect: "505 Version Not Supported", how: "Sends GET /index.html HTTP/1.1, exactly what a browser would send." },
+  { kind: "method", title: "Unsupported method", expect: "405 Method Not Allowed with Allow: GET, HEAD, PURGE, STATS", how: "Sends DELETE /index.html CNTP/1.0." },
+];
+const HOST_SCENARIOS = [
+  { title: "Origin down → 502", steps: ["On H1 press Ctrl+C on server.py.", "Here: Force a MISS. Expect 502 Bad Gateway; the proxy stays up.", "Here: Cached GET. A still-fresh object returns 200 HIT: the cache keeps serving.", "Restart server.py on H1 and Force a MISS again: 200."] },
+  { title: "Slow origin → 504", steps: ["On H1 restart with: python server.py --delay 6", "Here: Force a MISS. Expect 504 Gateway Timeout after 5 s.", "Restart H1 without --delay afterwards."] },
+  { title: "Proxy down", steps: ["On H2 press Ctrl+C on proxy.py.", "Here: Force a MISS or Cached GET. Expect connection refused, and the top bar shows the proxy Unreachable.", "Restart proxy.py on H2; the next request works."] },
+];
+const PROBES = [
+  { kind: "miss", title: "Force a MISS", expect: "200 MISS normally · 502 with H1 stopped · 504 with H1 --delay 6", how: "PURGE the path, then GET it, so the proxy must contact the origin.", path: true },
+  { kind: "cached", title: "Cached GET", expect: "200 HIT while /index.html is fresh, even with H1 stopped", how: "GET /index.html. Fetch it once before stopping H1 so it is cached." },
+];
+const faultLog = [];
+
+function faultCard(f) {
+  return `<div class="fault" data-kind="${f.kind}">
+    <div class="fault-main"><h3>${esc(f.title)}</h3><p class="muted small">${esc(f.how)}</p><p class="small"><span class="muted">Expected:</span> ${esc(f.expect)}</p></div>
+    <div class="fault-act">${f.path ? `<label class="sr" for="fp-${f.kind}">Path</label><select class="field mono" id="fp-${f.kind}"><option>/about.html</option><option>/notes.txt</option><option>/logo.png</option><option>/large.txt</option><option>/index.html</option></select>` : ""}
+      <button class="btn" type="button" data-run="${f.kind}"><svg class="ico"><use href="#i-play"/></svg>Run</button></div>
+    <div class="fault-result" id="fr-${f.kind}" hidden></div></div>`;
+}
+
+function setupFaults() {
+  $("#fault-client").innerHTML = CLIENT_FAULTS.map(faultCard).join("");
+  $("#fault-hosts").innerHTML = HOST_SCENARIOS.map((s) => `<div class="scenario"><h3>${esc(s.title)}</h3><ol class="steps">${s.steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>`).join("");
+  $("#fault-probes").innerHTML = PROBES.map(faultCard).join("");
+  $('[data-page="faults"]').addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-run]"); if (!b) return;
+    const kind = b.dataset.run, def = [...CLIENT_FAULTS, ...PROBES].find((f) => f.kind === kind);
+    const out = $(`#fr-${kind}`);
+    b.disabled = true; b.classList.add("busy"); out.hidden = false;
+    let tick;
+    if (def.slow) { let s = 0; out.innerHTML = `<p class="muted small mono">waiting for the proxy… 0 s</p>`; tick = setInterval(() => { s++; out.innerHTML = `<p class="muted small mono">waiting for the proxy… ${s} s</p>`; }, 1000); }
+    else out.innerHTML = '<p class="muted small mono">running…</p>';
+    let r;
+    try { r = await api("/api/fault", { kind, path: def.path ? $(`#fp-${kind}`).value : undefined }); }
+    catch (err) { r = { kind, time: new Date().toLocaleTimeString([], { hour12: false }), error: err.message, unreachable: !!err.data?.unreachable, expected: def.expect, passed: null }; }
+    finally { clearInterval(tick); b.disabled = false; b.classList.remove("busy"); }
+    r.title = def.title;
+    faultLog.unshift(r);
+    out.innerHTML = faultResult(r);
+    renderFaultLog();
+    if (r.unreachable) checkHealth();
+  });
+  $("#fault-copy").addEventListener("click", async (e) => {
+    const text = faultLog.slice().reverse().map(faultText).join("\n\n") || "No tests run yet.";
+    try { await navigator.clipboard.writeText(text); e.currentTarget.classList.add("done"); setTimeout(() => $("#fault-copy").classList.remove("done"), 1200); } catch { /* clipboard blocked */ }
+  });
+}
+function verdict(r) {
+  if (r.error) return `<span class="badge err">${r.unreachable ? "PROXY UNREACHABLE" : "FAILED"}</span>`;
+  if (r.passed === true) return '<span class="badge hit">AS DESIGNED</span>';
+  if (r.passed === false) return '<span class="badge err">UNEXPECTED</span>';
+  const code = Number((r.status_line || "").split(" ")[1]);
+  return code >= 500 ? `<span class="badge err">${code}</span>` : r.cache ? cacheBadge(r.cache) : '<span class="badge none">RECORDED</span>';
+}
+function faultResult(r) {
+  if (r.error) return `<div class="fr-head">${verdict(r)}<span class="mono small">${esc(r.error)}</span></div>`;
+  return `<div class="fr-head">${verdict(r)}<span class="mono small">${esc(r.status_line || "no response")}</span><span class="muted small mono">${r.elapsed_s} s · ${r.received_bytes} B received${r.closed_by_proxy ? " · closed by proxy" : ""}</span></div>
+    ${r.followup ? `<p class="small mono">${esc(r.followup)}</p>` : ""}
+    <details><summary class="small">Bytes sent and received</summary><pre class="viewer">${esc(r.sent || "(nothing sent)")}\n──────── response ────────\n${esc(r.received || "(nothing received)")}</pre></details>`;
+}
+function faultText(r) {
+  const head = `[${r.time}] ${r.title} -> ${r.target || state.config?.proxy.host + ":" + state.config?.proxy.port}`;
+  if (r.error) return `${head}\n  result: ${r.error}`;
+  return `${head}\n  expected: ${r.expected}\n  got: ${r.status_line || "no response"} | ${r.elapsed_s} s | ${r.received_bytes} bytes${r.closed_by_proxy ? " | closed by proxy" : ""}${r.cache ? " | X-Cache " + r.cache : ""}${r.followup ? "\n  " + r.followup : ""}\n  verdict: ${r.passed === true ? "as designed" : r.passed === false ? "UNEXPECTED" : "recorded"}`;
+}
+function renderFaultLog() {
+  $("#fault-empty").hidden = faultLog.length > 0;
+  $("#fault-log").innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th>Time</th><th>Test</th><th>Result</th><th>Response</th><th class="num">Elapsed</th></tr></thead><tbody>${faultLog.map((r) => `<tr><td class="mono">${esc(r.time)}</td><td>${esc(r.title)}</td><td>${verdict(r)}</td><td class="mono">${esc(r.error || r.status_line || "—")}</td><td class="num">${r.error ? "—" : r.elapsed_s + " s"}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+/* ---------------------------------------------------------------- host check */
+async function runHostCheck() {
+  $("#hc-strip").innerHTML = '<span class="muted small">Checking hosts…</span>';
+  try { state.hc = await api("/api/hostcheck"); }
+  catch (e) { state.hc = null; $("#hc-strip").innerHTML = `<span class="status-err small">${esc(e.message)}</span>`; return; }
+  renderHostCheck();
+  if (!$('[data-page="overview"]').hidden) drawTopology();
+}
+function renderHostCheck() {
+  const hc = state.hc; if (!hc) return;
+  const icon = (ok) => ok === true ? '<svg class="ico ok"><use href="#i-check"/></svg>' : ok === false ? '<svg class="ico bad"><use href="#i-x"/></svg>' : '<svg class="ico warn"><use href="#i-fault"/></svg>';
+  const h = hc.hosts;
+  const title = hc.verdict === "three-hosts" ? "Three separate hosts confirmed" : hc.verdict === "local" ? "Local lab: every role on this machine" : "Host check incomplete";
+  const cls = hc.verdict === "three-hosts" ? "ok" : hc.verdict === "local" ? "warn" : "bad";
+  $("#hc-strip").innerHTML = `<span class="hc-verdict ${cls}">${icon(hc.verdict === "three-hosts" ? true : hc.verdict === "local" ? null : false)}${title}</span>
+    <span class="hc-hosts mono"><b>H3</b> ${esc(h.h3 || "?")}<b>H2</b> ${esc(h.h2 || "?")}<b>H1</b> ${esc(h.h1 || "?")}</span>
+    <a href="#config" class="small">Details</a>`;
+  $("#hc-time").textContent = `checked ${hc.checked}`;
+  $("#hc-detail").innerHTML = `<ul class="checks">${hc.checks.map((c) => `<li>${icon(c.ok)}<div><b>${esc(c.text)}</b><span class="mono small">${esc(c.detail)}</span></div></li>`).join("")}</ul>`;
+}
+
 /* ---------------------------------------------------------------- config */
+function renderBanner() {
+  const c = state.config, saved = store.get("setup", null), b = $("#banner");
+  const isLocal = c.setup === "LOCAL LAB", partly = c.setup === "PARTLY LOCAL";
+  const offer = saved && (saved.proxy_host !== c.proxy.host || saved.origin_host !== c.origin.host) && !saved.proxy_host.startsWith("127.");
+  if (!isLocal && !partly) { b.hidden = true; return; }
+  b.hidden = false;
+  b.className = "banner " + (partly ? "bad" : "warn");
+  b.innerHTML = `<svg class="ico"><use href="#i-fault"/></svg><span>${isLocal ? "<b>Local lab.</b> Client, proxy and origin all run on this machine: fine for development, not valid for R3." : "<b>Partly local.</b> One role is on 127.0.0.1, so this is not a three-host run."}</span>
+    ${offer ? `<button class="btn" type="button" id="banner-saved">Connect to H2 ${esc(saved.proxy_host)} · H1 ${esc(saved.origin_host)}</button>` : ""}
+    <a class="btn" href="#config">Set up hosts</a>`;
+  $("#banner-saved")?.addEventListener("click", () => applySetup(saved));
+}
+async function applySetup(values, btn) {
+  $("#s-err").textContent = "";
+  btn?.classList.add("busy"); if (btn) btn.disabled = true;
+  try {
+    state.config = await api("/api/config", values);
+    if (!values.proxy_host.startsWith("127.")) store.set("setup", values);
+    renderConfig(); await checkHealth(); await runHostCheck(); refreshStats();
+  } catch (e) { $("#s-err").textContent = e.message; }
+  finally { btn?.classList.remove("busy"); if (btn) btn.disabled = false; }
+}
+function setupConfigForm() {
+  $("#setup-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = { proxy_host: $("#s-proxy-host").value.trim(), proxy_port: Number($("#s-proxy-port").value), origin_host: $("#s-origin-host").value.trim(), origin_port: Number($("#s-origin-port").value) };
+    if (!v.proxy_host || !v.origin_host) { $("#s-err").textContent = "Enter both IP addresses (run ipconfig on H2 and H1)."; return; }
+    applySetup(v, $("#s-apply"));
+  });
+  $("#s-local").addEventListener("click", (e) => applySetup({ proxy_host: "127.0.0.1", proxy_port: 9090, origin_host: "127.0.0.1", origin_port: 8080 }, e.currentTarget));
+}
 function renderConfig() {
   const c = state.config;
   $("#rail-target").textContent = `${c.proxy.host}:${c.proxy.port}`;
   const chip = $("#setup-chip"); chip.textContent = c.setup; chip.hidden = false;
   $("#lab-target").textContent = `Target: ${c.proxy.host}:${c.proxy.port} · ${c.version}`;
+  $("#s-proxy-host").value = c.proxy.host; $("#s-proxy-port").value = c.proxy.port;
+  $("#s-origin-host").value = c.origin.host; $("#s-origin-port").value = c.origin.port;
+  $("#cfg-source").textContent = `current values: ${c.source}`;
+  renderBanner();
   $("#cfg-table").innerHTML = `<tbody>
     <tr><td>Protocol</td><td class="mono">${esc(c.version)} over TCP</td></tr>
     <tr><td>This UI (browser ↔ ui.py)</td><td class="mono">http://${esc(c.ui)} · local HTTP, not CNTP</td></tr>
     <tr><td>Proxy (H2), requests go here</td><td class="mono">${esc(c.proxy.host)}:${c.proxy.port}</td></tr>
-    <tr><td>Origin (H1), reachability check only</td><td class="mono">${esc(c.origin.host)}:${c.origin.port}</td></tr>
+    <tr><td>Origin (H1), host check and top bar</td><td class="mono">${esc(c.origin.host)}:${c.origin.port}</td></tr>
     <tr><td>Setup</td><td class="mono">${esc(c.setup)}</td></tr>
     <tr><td>Python on this host</td><td class="mono">${esc(c.python)}</td></tr></tbody>`;
   const local = c.setup === "LOCAL LAB";
@@ -729,19 +862,22 @@ function renderConfig() {
 async function boot() {
   $("#menu-btn").addEventListener("click", () => { const o = $("#rail").classList.toggle("open"); $("#menu-btn").setAttribute("aria-expanded", String(o)); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeRail(); hideTip(); } });
-  $("#refresh-btn").addEventListener("click", () => { checkHealth(true); refreshStats(); });
+  $("#refresh-btn").addEventListener("click", () => { checkHealth(true); refreshStats(); runHostCheck(); });
   $("#activity tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) { state.selected = Number(tr.dataset.id); location.hash = "#inspector"; } });
   $("#activity tbody").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.closest("tr[data-id]")?.click(); });
   $("#insp-select").addEventListener("change", (e) => { state.selected = Number(e.target.value); renderInspector(); });
   $$('input[name="iv"]').forEach((i) => i.addEventListener("change", renderInspector));
   window.addEventListener("hashchange", route);
   let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (!$('[data-page="overview"]').hidden) drawTopology(); }, 150); });
-  setupRequestLab(); setupBench(); setupEvidence(); renderActivity();
+  setupRequestLab(); setupBench(); setupFaults(); setupEvidence(); setupConfigForm(); renderActivity();
   try { state.config = await api("/api/config"); renderConfig(); }
   catch (e) { $("#last-op").innerHTML = `<span class="status-err">${esc(e.message)}</span>`; }
   route();
   await checkHealth();
-  setInterval(checkHealth, 5000);
-  setInterval(() => { if (!$('[data-page="overview"]').hidden) refreshStats(); }, 5000);
+  runHostCheck();
+  // Reachability every 15 s (silent on the hosts: a connect-and-close is not logged).
+  // Proxy STATS refreshes only on page open, after each request and on the refresh button,
+  // so H2's console shows real traffic rather than polling.
+  setInterval(checkHealth, 15000);
 }
 boot();
