@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CacheNet Lab</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-overview" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7.4 11 16.6 7M7.4 13l9.2 4"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 19h16M7 19v-6M12 19V7M17 19v-9"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h3l3-7 4 14 3-9 2 2h5"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+</svg>
+
+<div class="shell">
+  <aside class="rail" id="rail">
+    <a class="wordmark" href="#overview" aria-label="CacheNet Lab, overview">
+      <svg viewBox="0 0 28 28" aria-hidden="true" class="wordmark-mark"><circle cx="5" cy="14" r="3"/><circle cx="14" cy="14" r="3"/><circle cx="23" cy="14" r="3"/><path d="M8 14h3M17 14h3"/></svg>
+      <span>CacheNet <em>Lab</em></span>
+    </a>
+    <nav aria-label="Sections">
+      <a href="#overview" data-nav="overview"><svg class="ico"><use href="#i-overview"/></svg>Overview</a>
+      <a href="#request" data-nav="request"><svg class="ico"><use href="#i-send"/></svg>Request lab</a>
+      <a href="#inspector" data-nav="inspector"><svg class="ico"><use href="#i-code"/></svg>Protocol inspector</a>
+      <a href="#bench" data-nav="bench"><svg class="ico"><use href="#i-gauge"/></svg>Benchmark lab</a>
+      <a href="#evidence" data-nav="evidence"><svg class="ico"><use href="#i-wave"/></svg>Packet evidence</a>
+      <a href="#config" data-nav="config"><svg class="ico"><use href="#i-sliders"/></svg>Configuration</a>
+    </nav>
+    <div class="rail-foot">
+      <span class="label">Target proxy</span>
+      <code id="rail-target">—</code>
+    </div>
+  </aside>
+
+  <div class="workspace">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Open navigation" aria-expanded="false"><svg class="ico"><use href="#i-menu"/></svg></button>
+      <div class="chips">
+        <span class="chip chip-proto">CNTP/1.0</span>
+        <span class="chip" id="setup-chip" hidden></span>
+      </div>
+      <div class="reach" aria-live="polite">
+        <span class="reach-item" id="reach-proxy" data-state="checking"><i></i><b>Proxy</b><span>Checking</span></span>
+        <span class="reach-item" id="reach-origin" data-state="checking"><i></i><b>Origin</b><span>Checking</span></span>
+        <button class="icon-btn" id="refresh-btn" aria-label="Check reachability now" title="Check reachability now"><svg class="ico"><use href="#i-refresh"/></svg></button>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- OVERVIEW -->
+      <section class="page" data-page="overview" aria-labelledby="h-overview">
+        <div class="page-head">
+          <h1 id="h-overview">Network overview</h1>
+          <p>The client → proxy → origin path. Send a request and the route replays what the response proves happened.</p>
+        </div>
+
+        <div class="panel topo-panel">
+          <div class="topo-bar">
+            <form class="composer" id="quick-form" autocomplete="off">
+              <div class="seg" role="radiogroup" aria-label="Method">
+                <label><input type="radio" name="qm" value="GET" checked><span>GET</span></label>
+                <label><input type="radio" name="qm" value="HEAD"><span>HEAD</span></label>
+                <label><input type="radio" name="qm" value="PURGE"><span>PURGE</span></label>
+              </div>
+              <label class="sr" for="quick-path">Resource</label>
+              <select id="quick-path" class="field mono">
+                <option>/index.html</option><option>/</option><option>/about.html</option><option>/notes.txt</option>
+                <option>/logo.png</option><option>/large.txt</option><option>/missing.html</option><option value="*">* (purge all)</option>
+              </select>
+              <button class="btn btn-primary" type="submit" id="quick-send"><svg class="ico"><use href="#i-send"/></svg>Send</button>
+            </form>
+            <p class="last-op" id="last-op" aria-live="polite">No request yet</p>
+          </div>
+          <div class="topo" id="topology" role="img" aria-label="Topology: client host H3, caching proxy H2 with its cache, origin server H1"></div>
+          <p class="topo-note">Replay drawn from the real response (status and X-Cache), after it arrives. It is not packet capture. Use Wireshark for that.</p>
+        </div>
+
+        <div class="overview-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Recent UI requests</h2>
+              <span class="muted small">This UI session</span>
+            </div>
+            <div class="session-stats" id="session-stats"></div>
+            <div class="table-wrap">
+              <table class="data" id="activity">
+                <thead><tr><th>Time</th><th>Method</th><th>Resource</th><th>Cache</th><th>Status</th><th class="num">Duration</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p class="empty" id="activity-empty">No UI requests yet. Send a GET above to trace the first one.</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Proxy cache</h2>
+              <span class="muted small" id="stats-src">Live from H2 via CNTP STATS</span>
+            </div>
+            <div id="stats-body"><p class="empty">Reading proxy counters…</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- REQUEST LAB -->
+      <section class="page" data-page="request" aria-labelledby="h-request" hidden>
+        <div class="page-head">
+          <h1 id="h-request">Request lab</h1>
+          <p>Compose one CNTP/1.0 request, send it to the proxy, and read exactly what came back.</p>
+        </div>
+        <div class="lab-grid">
+          <form class="panel lab-form" id="lab-form" autocomplete="off" novalidate>
+            <fieldset>
+              <legend>Method</legend>
+              <div class="seg seg-wide" role="radiogroup" aria-label="Method">
+                <label><input type="radio" name="lm" value="GET" checked><span>GET</span></label>
+                <label><input type="radio" name="lm" value="HEAD"><span>HEAD</span></label>
+                <label><input type="radio" name="lm" value="PURGE"><span>PURGE</span></label>
+              </div>
+            </fieldset>
+            <div class="field-group">
+              <label for="lab-path">Resource</label>
+              <input id="lab-path" class="field mono" value="/index.html" spellcheck="false" aria-describedby="lab-path-err">
+              <p class="field-error" id="lab-path-err" role="alert"></p>
+              <div class="chips-row" id="path-chips"></div>
+            </div>
+            <fieldset>
+              <legend>Connection</legend>
+              <div class="seg seg-wide" role="radiogroup" aria-label="Connection mode">
+                <label><input type="radio" name="cm" value="close" checked><span>Close after response</span></label>
+                <label><input type="radio" name="cm" value="keep-alive"><span>Keep-alive</span></label>
+              </div>
+              <p class="hint" id="mode-hint"></p>
+            </fieldset>
+            <button class="btn btn-primary btn-block" type="submit" id="lab-send"><svg class="ico"><use href="#i-send"/></svg>Send request</button>
+            <p class="target-line mono" id="lab-target"></p>
+          </form>
+
+          <div class="panel lab-result" id="lab-result">
+            <div class="empty-hero" id="lab-empty">
+              <p>No response yet.</p>
+              <p class="muted">Send a request to see its status line, cache result, timing and body here.</p>
+            </div>
+            <div id="lab-out" hidden>
+              <div class="status-line">
+                <span class="status-code" id="r-code"></span>
+                <span class="mono" id="r-line"></span>
+                <span class="badge" id="r-cache"></span>
+              </div>
+              <dl class="facts" id="r-facts"></dl>
+              <div class="tabs" role="tablist" aria-label="Response views">
+                <button role="tab" aria-selected="true" data-tab="body">Body</button>
+                <button role="tab" aria-selected="false" data-tab="headers">Headers</button>
+              </div>
+              <div class="tab-panel" data-panel="body" id="r-body"></div>
+              <div class="tab-panel" data-panel="headers" id="r-headers" hidden></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- INSPECTOR -->
+      <section class="page" data-page="inspector" aria-labelledby="h-inspector" hidden>
+        <div class="page-head">
+          <h1 id="h-inspector">CNTP/1.0 inspector</h1>
+          <p>Text messages over TCP. Headers end at CRLF CRLF; <code>Content-Length</code> frames the optional body. These are the exact bytes this UI sent and received. Ethernet, IP and TCP headers live in Wireshark, not here.</p>
+        </div>
+        <div class="inspector-pick">
+          <label for="insp-select">Message pair</label>
+          <select id="insp-select" class="field mono"></select>
+          <div class="seg" role="radiogroup" aria-label="View">
+            <label><input type="radio" name="iv" value="raw" checked><span>Raw message</span></label>
+            <label><input type="radio" name="iv" value="parsed"><span>Parsed fields</span></label>
+          </div>
+        </div>
+        <p class="empty" id="insp-empty">Nothing to inspect yet. Every request sent from Overview or Request lab appears here.</p>
+        <div class="insp-grid" id="insp-grid" hidden>
+          <div class="panel insp-pane">
+            <div class="panel-head"><h2>Request <span class="dir">H3 → H2</span></h2><span class="muted small mono" id="insp-req-bytes"></span></div>
+            <div id="insp-req"></div>
+          </div>
+          <div class="panel insp-pane">
+            <div class="panel-head"><h2>Response <span class="dir">H2 → H3</span></h2><span class="muted small mono" id="insp-res-bytes"></span></div>
+            <div id="insp-res"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BENCHMARKS -->
+      <section class="page" data-page="bench" aria-labelledby="h-bench" hidden>
+        <div class="page-head">
+          <h1 id="h-bench">Benchmark lab</h1>
+          <p>Measured results only, read from the CSV files under <code>results/</code>. Two runners with different methods, kept apart.</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Formal R6 suite <span class="muted mono small">bench.py</span></h2>
+          </div>
+          <p class="muted small method">Each test repeated N times. TCP connect, HEAD round trip, small object MISS/HIT, /large.txt throughput MISS/HIT, and a 4-object page fetch with keep-alive vs close, warm vs cold cache. Timers include the TCP handshake wherever a test opens a connection.</p>
+          <form class="bench-run" id="formal-form" autocomplete="off">
+            <div class="field-group">
+              <label for="f-label">Condition label</label>
+              <input id="f-label" class="field mono" value="wifi" maxlength="24" spellcheck="false">
+            </div>
+            <div class="field-group narrow">
+              <label for="f-runs">Runs per test</label>
+              <input id="f-runs" class="field mono" type="number" min="1" max="50" value="10">
+            </div>
+            <button class="btn btn-primary" type="submit" id="f-start"><svg class="ico"><use href="#i-play"/></svg>Run benchmark</button>
+            <p class="field-error" id="f-err" role="alert"></p>
+          </form>
+          <pre class="log" id="f-log" hidden aria-live="polite"></pre>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Results</h2>
+            <span class="muted small">Pick one or more datasets to compare</span>
+          </div>
+          <div class="datasets" id="datasets"></div>
+          <div class="charts" id="charts"></div>
+          <div class="table-wrap"><table class="data" id="bench-table"></table></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Quick connection-mode comparison <span class="muted mono small">client.py</span></h2>
+          </div>
+          <p class="muted small method">One warm-up GET of /index.html, then 10 timed GETs: one connection for all (keep-alive) or a new connection each time (close). All 10 are cache HITs, so this compares connection modes only. Appends to <code>results/performance_results.csv</code>.</p>
+          <div class="row-actions">
+            <button class="btn" id="q-close">Run with close after response</button>
+            <button class="btn" id="q-keep">Run with keep-alive</button>
+          </div>
+          <div class="quick-grid" id="quick-out"></div>
+        </div>
+      </section>
+
+      <!-- EVIDENCE -->
+      <section class="page" data-page="evidence" aria-labelledby="h-evidence" hidden>
+        <div class="page-head">
+          <h1 id="h-evidence">Packet evidence</h1>
+          <p>Wireshark captures what is on the wire. This page keeps the capture procedure, the filters and your notes next to the requests that produced them. It does not read capture files.</p>
+        </div>
+        <div class="evidence-grid">
+          <div class="panel">
+            <div class="panel-head"><h2>Capture checklist</h2><span class="muted small">Saved in this browser</span></div>
+            <ul class="checklist" id="checklist"></ul>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Display filters</h2></div>
+            <ul class="filters" id="filters"></ul>
+            <h3>Demonstration sequence</h3>
+            <ol class="steps" id="scenario"></ol>
+          </div>
+          <div class="panel span-2">
+            <div class="panel-head"><h2>Evidence notes</h2><span class="muted small" id="notes-saved">Saved in this browser</span></div>
+            <label class="sr" for="notes">Evidence notes</label>
+            <textarea id="notes" class="field mono notes" spellcheck="false" placeholder="Capture file, packet numbers and what they show, e.g.&#10;r5_encapsulation.pcapng  #14 GET /index.html H3→H2 :9090  (annotated for R5)"></textarea>
+          </div>
+          <div class="panel span-2">
+            <div class="panel-head"><h2>Glossary</h2></div>
+            <dl class="glossary" id="glossary"></dl>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONFIG -->
+      <section class="page" data-page="config" aria-labelledby="h-config" hidden>
+        <div class="page-head">
+          <h1 id="h-config">Configuration</h1>
+          <p>What this UI is pointed at, and how to start every host. Values are read-only here. Change them with the command-line options.</p>
+        </div>
+        <div class="panel">
+          <div class="table-wrap"><table class="data kv" id="cfg-table"></table></div>
+          <p class="hint">The proxy's real upstream is set on H2 with <code>--origin-host</code>. This UI's origin setting only drives the reachability check in the top bar.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Run commands</h2></div>
+          <div id="runbook"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<div class="tooltip" id="tooltip" role="status" hidden></div>
+<dialog class="confirm" id="confirm-dialog" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <h2 id="confirm-title">Clear the whole proxy cache?</h2>
+    <p>PURGE * removes every cached object on the proxy (H2). The next request for each object becomes a MISS and goes to the origin.</p>
+    <div class="row-actions end">
+      <button class="btn" value="cancel">Keep cache</button>
+      <button class="btn btn-danger" value="ok">Clear cache</button>
+    </div>
+  </form>
+</dialog>
+<script src="/static/app.js"></script>
+</body>
+</html>

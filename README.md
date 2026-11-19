@@ -57,6 +57,7 @@ Connection: keep-alive\r\n              Content-Length: 30\r\n
 | `GET` | proxy, then origin | Fetch an object |
 | `HEAD` | proxy, then origin | Headers only, with the real `Content-Length` and no body |
 | `PURGE` | proxy only | Remove `/path` from the cache, or everything with `PURGE *` |
+| `STATS` | proxy only | `STATS * CNTP/1.0`: plain-text body with `hits`, `misses`, `bytes_saved`, `entries`, then one `entry: <path> ttl=<s> bytes=<n>` line per cached object |
 
 | Header | Set by | Meaning |
 |---|---|---|
@@ -73,7 +74,7 @@ Connection: keep-alive\r\n              Content-Length: 30\r\n
 | 200 OK | both | Success; also a successful PURGE |
 | 400 Bad Request | both | Malformed request line or header |
 | 404 Not Found | origin; proxy for PURGE | File missing or outside `www/`; PURGE of a path that isn't cached |
-| 405 Method Not Allowed | both | Origin allows `GET, HEAD`; proxy allows `GET, HEAD, PURGE` |
+| 405 Method Not Allowed | both | Origin allows `GET, HEAD`; proxy allows `GET, HEAD, PURGE, STATS` |
 | 505 Version Not supported | both | Request line version is not `CNTP/1.0` |
 | 408 Request Timeout | both | Client idle for 15 s; the connection is then closed |
 | 502 Bad Gateway | proxy | Origin unreachable, closed early, or sent a malformed or incomplete response |
@@ -95,7 +96,19 @@ python proxy.py         # Proxy listening on 0.0.0.0:9090, origin 127.0.0.1:8080
 | H2 | Proxy | 192.168.1.20 | `python proxy.py --origin-host 192.168.1.10` |
 | H3 | Client | 192.168.1.30 | connects to `192.168.1.20:9090` |
 
-Use `ipconfig` / `ip addr` to get the real addresses, and allow TCP ports 8080 (H1) and 9090 (H2) through the firewall.
+Use `ipconfig` / `ip addr` to get the real addresses, and allow TCP ports 8080 (H1) and 9090 (H2) through the firewall. Always type IP addresses, not `localhost`: on Windows `localhost` tries IPv6 first and can add about 2 s to every connection.
+
+**Browser UI (CacheNet Lab), on H3:**
+```powershell
+python ui.py --proxy-host <H2-IP> --origin-host <H1-IP>    # then open http://127.0.0.1:3000
+```
+The browser cannot open raw TCP sockets, so it talks plain HTTP to `ui.py` on `127.0.0.1:3000` only; `ui.py` then speaks CNTP/1.0 to the proxy with the same socket code as `client.py`. Its small HTTP server is also written directly on sockets. Pages: network overview with a request trace, request lab (close or keep-alive), CNTP inspector (exact bytes sent and received), benchmark lab (runs `bench.py` and charts its CSVs), packet-evidence checklist and configuration.
+
+**Measurements and graphs (R6):**
+```powershell
+python bench.py --proxy-host <H2-IP> --label wifi --runs 10   # writes results/bench_wifi_<time>_raw.csv and _summary.csv
+python plot_results.py                                         # PNG charts + r6_summary.csv in results/plots/
+```
 
 > **Port 8080 already in use?** On some PCs a local Apache (XAMPP/WAMP) holds 8080 and answers instead of `server.py`. If `server.py` fails with `WinError 10013`, or a response has `Server: Apache`, stop that service or change `PORT` in `server.py` and start the proxy with the matching `--origin-port`.
 
