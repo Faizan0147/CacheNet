@@ -193,13 +193,28 @@ def forward(origin,method,path):
         return status,reason,headers,body
 
 
-def stats_body():
-    """Body of a STATS response: one "name: value" line per counter, then one
+def origin_reachable():
+    """Can this proxy open a TCP connection to its origin right now? (H2 -> H1 path check)"""
+    try:
+        socket.create_connection((ORIGIN_HOST,ORIGIN_PORT),timeout=1).close()
+        return "yes"
+    except OSError:
+        return "no"
+
+
+def stats_body(peer=None,local=None):
+    """Body of a STATS response: one "name: value" line per field, then one
        "entry:" line per cached object (path, seconds of TTL left, body bytes).
-       Expired entries are skipped, the same rule a GET would apply."""
+       Expired entries are skipped, the same rule a GET would apply.
+       origin/proxy/client let a client confirm the three hosts are separate."""
     now=time.time()
+    reach=origin_reachable()
     with lock:
-        lines=[f"hits: {stats['hits']}",
+        lines=[f"origin: {ORIGIN_HOST}:{ORIGIN_PORT}",
+               f"origin_reachable: {reach}",
+               f"proxy: {local[0]}:{local[1]}" if local else "proxy: -",
+               f"client: {peer[0]}:{peer[1]}" if peer else "client: -",
+               f"hits: {stats['hits']}",
                f"misses: {stats['misses']}",
                f"bytes_saved: {stats['bytes_saved']}"]
         entries=[(k,e) for k,e in cache.items() if e["expires"]>now]
@@ -209,8 +224,9 @@ def stats_body():
     return ("\r\n".join(lines)+"\r\n").encode("latin-1")
 
 
-def handle_request(parsed,origin,connection):
-    """Return (response_bytes,x_cache,status) for one client request"""
+def handle_request(parsed,origin,connection,peer=None,local=None):
+    """Return (response_bytes,x_cache,status) for one client request.
+       peer/local are the client's and this proxy's addresses on the connection (for STATS)."""
     method=parsed["method"]
     key=cache_key(parsed["path"])
 
@@ -226,7 +242,7 @@ def handle_request(parsed,origin,connection):
         return build_response(404,"Not Found","text/plain",b"Not cached",connection=connection),"-",404
 
     if method==b"STATS": #proxy-local, like PURGE: never forwarded to the origin
-        return build_response(200,"OK","text/plain",stats_body(),connection=connection),"-",200
+        return build_response(200,"OK","text/plain",stats_body(peer,local),connection=connection),"-",200
 
     if method not in (b"GET",b"HEAD"):
         return build_response(405,"Method Not Allowed","text/plain",b"Method Not Allowed",
@@ -259,7 +275,9 @@ def handle_client(conn,addr):
     """Keep-alive loop for one client. Each client gets its own origin connection."""
     buffer=b""
     origin={"sock":None,"buf":b""}
+    served=0 #requests answered on this connection; 0 at close means a reachability probe
     conn.settimeout(IDLE_TIMEOUT)
+    local=conn.getsockname()
     with conn:
         try:
             while True:
@@ -270,8 +288,10 @@ def handle_client(conn,addr):
                     conn.sendall(build_response(408,"Request Timeout","text/plain",b"Request Timeout",connection="close"))
                     break
                 if request is None:
-                    print("Client disconnected:",addr)
+                    if served: #a connect-and-close probe (UI reachability check) is not logged
+                        print("Client disconnected:",addr)
                     break
+                served+=1
 
                 try:
                     parsed=parse_request(request)
@@ -286,7 +306,7 @@ def handle_client(conn,addr):
 
                 close=parsed["headers"].get(b"connection",b"").lower()==b"close" #non-persistent mode
                 start=time.perf_counter()
-                response,x_cache,status=handle_request(parsed,origin,"close" if close else "keep-alive")
+                response,x_cache,status=handle_request(parsed,origin,"close" if close else "keep-alive",addr,local)
                 conn.sendall(response)
                 elapsed=(time.perf_counter()-start)*1000
                 print(f"{addr[0]}:{addr[1]} {parsed['method'].decode()} {parsed['path'].decode('latin-1')} "

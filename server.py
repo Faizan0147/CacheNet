@@ -4,6 +4,7 @@ HOST = "0.0.0.0"
 PORT = 8080
 VERSION = b"CNTP/1.0"
 MAX_AGE = 60
+DELAY = 0.0 #seconds to wait before every response; --delay 6 simulates a slow origin (proxy answers 504)
 DOC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www")
 LOG_LOCK = threading.Lock()
 class VersionError(ValueError):
@@ -46,6 +47,7 @@ def handle_client(conn, addr):
     """Calls read_requests then print the request and the address, Stop the loop when read_requests reports 
 #         client closed"""
     buffer = b""
+    served = 0 #requests answered; a connection closed with 0 is a reachability probe and is not logged
     conn.settimeout(15)
     with conn:
         try:
@@ -59,8 +61,10 @@ def handle_client(conn, addr):
                     log_request(addr,"-",408,len(response))
                     break
                 if request is None:
-                    print("Client disconnected:", addr)
+                    if served:
+                        print("Client disconnected:", addr)
                     break
+                served += 1
                 request_line=request.split(b"\r\n",1)[0].decode("latin-1","replace")
                 close=False
                 try:
@@ -75,6 +79,8 @@ def handle_client(conn, addr):
                     response=build_response(400, "Bad Request", "text/plain", b"Bad Request")
 
                 status=int(response.split(b" ",2)[1])
+                if DELAY:
+                    time.sleep(DELAY)
                 conn.sendall(response)
                 log_request(addr,request_line,status,len(response))
                 if close:
@@ -272,10 +278,14 @@ if __name__=="__main__":
     parser.add_argument("port",nargs="?",type=int,help="same as --port (kept so 'python server.py 8080' still works)")
     parser.add_argument("--port",dest="port_opt",type=int,default=PORT)
     parser.add_argument("--max-age",type=int,default=MAX_AGE,help="Max-Age (TTL seconds) sent with every 200 response")
+    parser.add_argument("--delay",type=float,default=DELAY,help="seconds to wait before each response (R7 slow-origin test: 6 > proxy's 5 s timeout)")
     args=parser.parse_args()
     PORT=args.port if args.port is not None else args.port_opt
     MAX_AGE=args.max_age
+    DELAY=args.delay
     print(f"Max-Age: {MAX_AGE}s, document root: {DOC_ROOT}")
+    if DELAY:
+        print(f"SLOW ORIGIN MODE: every response is delayed {DELAY}s (the proxy times out after 5 s and returns 504)")
     main()
 
 
