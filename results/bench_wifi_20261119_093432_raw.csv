@@ -1,0 +1,51 @@
+label,test,condition,run,time_ms,bytes,throughput_mbps,x_cache
+wifi,TCP connect (~1 RTT),client->proxy,1,34.162,0,,-
+wifi,TCP connect (~1 RTT),client->proxy,2,7.182,0,,-
+wifi,TCP connect (~1 RTT),client->proxy,3,23.548,0,,-
+wifi,TCP connect (~1 RTT),client->proxy,4,9.585,0,,-
+wifi,TCP connect (~1 RTT),client->proxy,5,6.634,0,,-
+wifi,"App RTT (HEAD, open conn)",cached,1,4.342,115,0.212,HIT
+wifi,"App RTT (HEAD, open conn)",cached,2,18.479,115,0.05,HIT
+wifi,"App RTT (HEAD, open conn)",cached,3,4.888,115,0.188,HIT
+wifi,"App RTT (HEAD, open conn)",cached,4,4.747,115,0.194,HIT
+wifi,"App RTT (HEAD, open conn)",cached,5,5.732,115,0.161,HIT
+wifi,Object /index.html,MISS,1,27.148,141,0.042,MISS
+wifi,Object /index.html,MISS,2,102.614,141,0.011,MISS
+wifi,Object /index.html,MISS,3,41.889,141,0.027,MISS
+wifi,Object /index.html,MISS,4,54.933,141,0.021,MISS
+wifi,Object /index.html,MISS,5,24.143,141,0.047,MISS
+wifi,Object /index.html,HIT,1,13.198,140,0.085,HIT
+wifi,Object /index.html,HIT,2,13.428,140,0.083,HIT
+wifi,Object /index.html,HIT,3,30.548,140,0.037,HIT
+wifi,Object /index.html,HIT,4,42.445,140,0.026,HIT
+wifi,Object /index.html,HIT,5,33.346,140,0.034,HIT
+wifi,Throughput /large.txt,MISS,1,261.275,200096,6.127,MISS
+wifi,Throughput /large.txt,MISS,2,217.339,200096,7.365,MISS
+wifi,Throughput /large.txt,MISS,3,402.887,200096,3.973,MISS
+wifi,Throughput /large.txt,MISS,4,269.902,200096,5.931,MISS
+wifi,Throughput /large.txt,MISS,5,249.237,200096,6.423,MISS
+wifi,Throughput /large.txt,HIT,1,154.211,200095,10.38,HIT
+wifi,Throughput /large.txt,HIT,2,115.554,200095,13.853,HIT
+wifi,Throughput /large.txt,HIT,3,124.093,200095,12.9,HIT
+wifi,Throughput /large.txt,HIT,4,128.621,200095,12.446,HIT
+wifi,Throughput /large.txt,HIT,5,110.993,200095,14.422,HIT
+wifi,Page fetch (4 objects),"persistent, warm cache",1,49.746,853,0.137,HIT
+wifi,Page fetch (4 objects),"persistent, warm cache",2,62.387,853,0.109,HIT
+wifi,Page fetch (4 objects),"persistent, warm cache",3,60.405,853,0.113,HIT
+wifi,Page fetch (4 objects),"persistent, warm cache",4,65.768,853,0.104,HIT
+wifi,Page fetch (4 objects),"persistent, warm cache",5,51.15,853,0.133,HIT
+wifi,Page fetch (4 objects),"non-persistent, warm cache",1,123.129,838,0.054,HIT
+wifi,Page fetch (4 objects),"non-persistent, warm cache",2,96.45,838,0.07,HIT
+wifi,Page fetch (4 objects),"non-persistent, warm cache",3,82.46,838,0.081,HIT
+wifi,Page fetch (4 objects),"non-persistent, warm cache",4,224.332,838,0.03,HIT
+wifi,Page fetch (4 objects),"non-persistent, warm cache",5,127.078,838,0.053,HIT
+wifi,Page fetch (4 objects),"persistent, cold cache",1,121.468,857,0.056,MISS
+wifi,Page fetch (4 objects),"persistent, cold cache",2,101.327,857,0.068,MISS
+wifi,Page fetch (4 objects),"persistent, cold cache",3,91.383,857,0.075,MISS
+wifi,Page fetch (4 objects),"persistent, cold cache",4,124.359,857,0.055,MISS
+wifi,Page fetch (4 objects),"persistent, cold cache",5,359.958,857,0.019,MISS
+wifi,Page fetch (4 objects),"non-persistent, cold cache",1,173.596,842,0.039,MISS
+wifi,Page fetch (4 objects),"non-persistent, cold cache",2,169.721,842,0.04,MISS
+wifi,Page fetch (4 objects),"non-persistent, cold cache",3,194.061,842,0.035,MISS
+wifi,Page fetch (4 objects),"non-persistent, cold cache",4,287.704,842,0.023,MISS
+wifi,Page fetch (4 objects),"non-persistent, cold cache",5,226.037,842,0.03,MISS

@@ -4,6 +4,7 @@ HOST = "0.0.0.0"
 PORT = 8080
 VERSION = b"CNTP/1.0"
 MAX_AGE = 60
+DELAY = 0.0 #seconds to wait before every response; --delay 6 simulates a slow origin (proxy answers 504)
 DOC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www")
 LOG_LOCK = threading.Lock()
 class VersionError(ValueError):
@@ -46,6 +47,7 @@ def handle_client(conn, addr):
     """Calls read_requests then print the request and the address, Stop the loop when read_requests reports 
 #         client closed"""
     buffer = b""
+    served = 0 #requests answered; a connection closed with 0 is a reachability probe and is not logged
     conn.settimeout(15)
     with conn:
         try:
@@ -54,16 +56,21 @@ def handle_client(conn, addr):
                 try:
                     request, buffer = read_requests(conn, buffer)
                 except socket.timeout:
-                    response=build_response(408,"Request Timeout","text/plain",b"Request Timeout")
+                    response=build_response(408,"Request Timeout","text/plain",b"Request Timeout",connection="close")
                     conn.sendall(response)
                     log_request(addr,"-",408,len(response))
                     break
                 if request is None:
-                    print("Client disconnected:", addr)
+                    if served:
+                        print("Client disconnected:", addr)
                     break
+                served += 1
                 request_line=request.split(b"\r\n",1)[0].decode("latin-1","replace")
+                close=False
                 try:
                     parsed = parse_request(request)
+                    #non-persistent mode: answer, then close this connection
+                    close=parsed["headers"].get(b"connection", b"").lower()==b"close"
                     response=handle_request(parsed)
                 except VersionError:
                     response=build_response(505,"Version Not supported","text/plain",b"Version Not supported")
@@ -72,8 +79,12 @@ def handle_client(conn, addr):
                     response=build_response(400, "Bad Request", "text/plain", b"Bad Request")
 
                 status=int(response.split(b" ",2)[1])
+                if DELAY:
+                    time.sleep(DELAY)
                 conn.sendall(response)
                 log_request(addr,request_line,status,len(response))
+                if close:
+                    break
 
         except OSError as e:
             print("Connection error",addr,e)
@@ -125,10 +136,18 @@ def main():
         server.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
         server.bind((HOST,PORT))
         server.listen()
+        server.settimeout(1) #wake up every second so Ctrl+C works on Windows
         print(f"Listening on {HOST}:{PORT}")
-        while True:
-            conn,addr=server.accept()
-            threading.Thread(target=handle_client,args=(conn,addr),daemon=True).start()
+        try:
+            while True:
+                try:
+                    conn,addr=server.accept()
+                    conn.settimeout(None) #accepted sockets must not inherit the 1 s accept timeout
+                    threading.Thread(target=handle_client,args=(conn,addr),daemon=True).start()
+                except socket.timeout:
+                    pass
+        except KeyboardInterrupt:
+            print("\nServer stopped")
 
 
 def build_response(status_code, reason, content_type, body, extra_headers=None, connection="keep-alive"):
@@ -229,7 +248,7 @@ def handle_request(parsed):
     #         If it returns None, return a 404 response
     path=resolve_path(parsed["path"])
     if not path:
-            return build_response(404, "Not Found", "text/plain", b"Not Found")
+            return build_response(404, "Not Found", "text/plain", b"Not Found", connection=connection)
     
 
     #  read the file in binary mode: open(path, "rb").read()
@@ -242,8 +261,9 @@ def handle_request(parsed):
     # \ for GET, return build_response(200, "OK", content_type, body).
     #         For HEAD, build the same response, then drop the body.
     #        
-    ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
-    full = build_response(200, "OK", ctype, body, extra_headers=[("Max-Age", str(MAX_AGE))])
+    #the fixed table first, so every host sends the same type (mimetypes reads the Windows registry)
+    ctype = CONTENT_TYPES.get(os.path.splitext(path)[1].lower()) or mimetypes.guess_type(path)[0] or "application/octet-stream"
+    full = build_response(200, "OK", ctype, body, extra_headers=[("Max-Age", str(MAX_AGE))], connection=connection)
     if method==b"HEAD":
         return full[: full.find(b"\r\n\r\n") + 4]
     return full
@@ -258,10 +278,14 @@ if __name__=="__main__":
     parser.add_argument("port",nargs="?",type=int,help="same as --port (kept so 'python server.py 8080' still works)")
     parser.add_argument("--port",dest="port_opt",type=int,default=PORT)
     parser.add_argument("--max-age",type=int,default=MAX_AGE,help="Max-Age (TTL seconds) sent with every 200 response")
+    parser.add_argument("--delay",type=float,default=DELAY,help="seconds to wait before each response (R7 slow-origin test: 6 > proxy's 5 s timeout)")
     args=parser.parse_args()
     PORT=args.port if args.port is not None else args.port_opt
     MAX_AGE=args.max_age
+    DELAY=args.delay
     print(f"Max-Age: {MAX_AGE}s, document root: {DOC_ROOT}")
+    if DELAY:
+        print(f"SLOW ORIGIN MODE: every response is delayed {DELAY}s (the proxy times out after 5 s and returns 504)")
     main()
 
 

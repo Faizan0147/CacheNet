@@ -41,7 +41,12 @@ def now():
 
 
 def connect():
-    return socket.create_connection(PROXY, timeout=TIMEOUT)
+    # Blocking connect, then a timeout for reads. With timeout= set, Python on Windows
+    # does a non-blocking connect + select(), which sometimes wakes a timer tick late
+    # (+15-25 ms measured on loopback) and inflates every connect-timed test.
+    s = socket.create_connection(PROXY)
+    s.settimeout(TIMEOUT)
+    return s
 
 
 def send(sock, method, path, keep_alive=True):
@@ -111,7 +116,7 @@ def t_connect():
 def t_app_rtt():
     warm([SMALL])
     with connect() as s:
-        send(s, "HEAD", SMALL)          # first request opens the proxy's origin path too
+        send(s, "HEAD", SMALL)          # untimed first request: lets the connection settle
         recv_response(s, "HEAD")
         start = now()
         send(s, "HEAD", SMALL)
@@ -192,6 +197,8 @@ def main():
     sum_path = os.path.join(args.out, f"bench_{args.label}_{stamp}_summary.csv")
 
     print(f"CacheNet benchmark: proxy {PROXY[0]}:{PROXY[1]}, {args.runs} runs per test, label '{args.label}'")
+    if PROXY[0] in ("127.0.0.1", "localhost"):
+        print("WARNING: proxy is 127.0.0.1 (this machine). R6 needs a 3-host run: pass --proxy-host <H2-IP>.")
     try:
         one_shot("HEAD", SMALL)
     except OSError as e:
@@ -216,7 +223,7 @@ def main():
         mean_bytes = statistics.mean(sizes)
         summary.append({
             "label": args.label, "test": name, "condition": cond, "runs": len(times),
-            "mean_ms": round(mean, 3), "stdev_ms": round(sd, 3),
+            "mean_ms": round(mean, 3), "median_ms": round(statistics.median(times), 3), "stdev_ms": round(sd, 3),
             "min_ms": round(min(times), 3), "max_ms": round(max(times), 3),
             "mean_bytes": round(mean_bytes),
             "mean_throughput_mbps": round(mean_bytes * 8 / (mean / 1000) / 1e6, 3) if mean_bytes else "",

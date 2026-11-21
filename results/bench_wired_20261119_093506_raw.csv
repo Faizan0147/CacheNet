@@ -1,0 +1,51 @@
+label,test,condition,run,time_ms,bytes,throughput_mbps,x_cache
+wired,TCP connect (~1 RTT),client->proxy,1,90.816,0,,-
+wired,TCP connect (~1 RTT),client->proxy,2,14.49,0,,-
+wired,TCP connect (~1 RTT),client->proxy,3,10.271,0,,-
+wired,TCP connect (~1 RTT),client->proxy,4,5.16,0,,-
+wired,TCP connect (~1 RTT),client->proxy,5,26.72,0,,-
+wired,"App RTT (HEAD, open conn)",cached,1,8.449,115,0.109,HIT
+wired,"App RTT (HEAD, open conn)",cached,2,7.989,115,0.115,HIT
+wired,"App RTT (HEAD, open conn)",cached,3,5.364,115,0.172,HIT
+wired,"App RTT (HEAD, open conn)",cached,4,5.557,115,0.166,HIT
+wired,"App RTT (HEAD, open conn)",cached,5,6.238,115,0.147,HIT
+wired,Object /index.html,MISS,1,128.007,141,0.009,MISS
+wired,Object /index.html,MISS,2,148.96,141,0.008,MISS
+wired,Object /index.html,MISS,3,110.655,141,0.01,MISS
+wired,Object /index.html,MISS,4,129.071,141,0.009,MISS
+wired,Object /index.html,MISS,5,135.62,141,0.008,MISS
+wired,Object /index.html,HIT,1,13.965,140,0.08,HIT
+wired,Object /index.html,HIT,2,26.112,140,0.043,HIT
+wired,Object /index.html,HIT,3,49.264,140,0.023,HIT
+wired,Object /index.html,HIT,4,16.612,140,0.067,HIT
+wired,Object /index.html,HIT,5,31.281,140,0.036,HIT
+wired,Throughput /large.txt,MISS,1,281.338,200096,5.69,MISS
+wired,Throughput /large.txt,MISS,2,286.28,200096,5.592,MISS
+wired,Throughput /large.txt,MISS,3,436.833,200096,3.664,MISS
+wired,Throughput /large.txt,MISS,4,296.007,200096,5.408,MISS
+wired,Throughput /large.txt,MISS,5,358.633,200096,4.464,MISS
+wired,Throughput /large.txt,HIT,1,146.475,200095,10.929,HIT
+wired,Throughput /large.txt,HIT,2,112.69,200095,14.205,HIT
+wired,Throughput /large.txt,HIT,3,147.019,200095,10.888,HIT
+wired,Throughput /large.txt,HIT,4,210.129,200095,7.618,HIT
+wired,Throughput /large.txt,HIT,5,140.714,200095,11.376,HIT
+wired,Page fetch (4 objects),"persistent, warm cache",1,69.971,853,0.098,HIT
+wired,Page fetch (4 objects),"persistent, warm cache",2,60.102,853,0.114,HIT
+wired,Page fetch (4 objects),"persistent, warm cache",3,44.864,853,0.152,HIT
+wired,Page fetch (4 objects),"persistent, warm cache",4,60.748,853,0.112,HIT
+wired,Page fetch (4 objects),"persistent, warm cache",5,37.047,853,0.184,HIT
+wired,Page fetch (4 objects),"non-persistent, warm cache",1,144.435,838,0.046,HIT
+wired,Page fetch (4 objects),"non-persistent, warm cache",2,185.713,838,0.036,HIT
+wired,Page fetch (4 objects),"non-persistent, warm cache",3,187.68,838,0.036,HIT
+wired,Page fetch (4 objects),"non-persistent, warm cache",4,187.517,838,0.036,HIT
+wired,Page fetch (4 objects),"non-persistent, warm cache",5,140.082,838,0.048,HIT
+wired,Page fetch (4 objects),"persistent, cold cache",1,321.206,857,0.021,MISS
+wired,Page fetch (4 objects),"persistent, cold cache",2,156.399,857,0.044,MISS
+wired,Page fetch (4 objects),"persistent, cold cache",3,147.196,857,0.047,MISS
+wired,Page fetch (4 objects),"persistent, cold cache",4,124.896,857,0.055,MISS
+wired,Page fetch (4 objects),"persistent, cold cache",5,150.204,857,0.046,MISS
+wired,Page fetch (4 objects),"non-persistent, cold cache",1,360.009,842,0.019,MISS
+wired,Page fetch (4 objects),"non-persistent, cold cache",2,291.086,842,0.023,MISS
+wired,Page fetch (4 objects),"non-persistent, cold cache",3,212.202,842,0.032,MISS
+wired,Page fetch (4 objects),"non-persistent, cold cache",4,331.242,842,0.02,MISS
+wired,Page fetch (4 objects),"non-persistent, cold cache",5,380.365,842,0.018,MISS

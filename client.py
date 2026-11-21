@@ -299,6 +299,8 @@ if __name__ == "__main__":
 
     print("\n===== CacheNet CLI Client =====")
     print(f"Proxy: {PROXY_HOST}:{PROXY_PORT}")
+    if PROXY_HOST in ("127.0.0.1", "localhost"):
+        print("WARNING: proxy is 127.0.0.1 (this machine). For a 3-host run pass --proxy-host <H2-IP>.")
 
     print("1. GET Request")
     print("2. HEAD Request")
