@@ -1,4 +1,5 @@
 import socket
+import sys
 import threading
 import time
 import argparse
@@ -157,6 +158,31 @@ def close_origin(origin):
     origin["buf"]=b""
 
 
+def connect_origin():
+    """Open a TCP connection to the origin, giving up after ORIGIN_TIMEOUT seconds.
+       If the origin host is up but nothing listens on the port, its firewall usually drops the
+       SYN instead of refusing it, and a plain connect would wait ~21 s before failing.
+       On Windows the limit is set with TCP_MAXRT (option 5) and the connect stays blocking:
+       a connect with settimeout() uses select(), which wakes a timer tick late (+15-25 ms)
+       and that delay would land in every MISS."""
+    sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    if sys.platform=="win32":
+        sock.setsockopt(socket.IPPROTO_TCP,getattr(socket,"TCP_MAXRT",5),ORIGIN_TIMEOUT)
+    else:
+        sock.settimeout(ORIGIN_TIMEOUT)
+    try:
+        sock.connect((ORIGIN_HOST,ORIGIN_PORT))
+    except TimeoutError:
+        sock.close()
+        #no answer to the connection attempt: the origin is unreachable (502), not slow (504)
+        raise ConnectionError(f"origin {ORIGIN_HOST}:{ORIGIN_PORT} did not answer the connection attempt")
+    except OSError:
+        sock.close()
+        raise
+    sock.settimeout(ORIGIN_TIMEOUT)
+    return sock
+
+
 def forward(origin,method,path):
     """Send the request to the origin and return (status,reason,headers,body).
        origin: {"sock","buf"} kept per client thread so the origin connection is reused.
@@ -168,10 +194,7 @@ def forward(origin,method,path):
     for _ in range(2): #second pass always uses a fresh connection, so it returns or raises
         reused=origin["sock"] is not None
         if not reused:
-            #blocking connect, then the read timeout: a connect with timeout= on Windows can
-            #wake a timer tick late (+15-25 ms) and that delay would land in every MISS
-            origin["sock"]=socket.create_connection((ORIGIN_HOST,ORIGIN_PORT))
-            origin["sock"].settimeout(ORIGIN_TIMEOUT)
+            origin["sock"]=connect_origin()
             origin["buf"]=b""
         try:
             origin["sock"].sendall(request)
