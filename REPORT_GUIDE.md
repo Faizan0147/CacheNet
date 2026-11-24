@@ -17,6 +17,8 @@ All data is collected. This guide says what goes in each section of the report, 
 |---|---|---|
 | Export the **network diagram** as a PNG | R3 | Open `evidence/network_diagram_R3.drawio` at app.diagrams.net (File → Open from device), then use File → Export as → PNG and paste the image into the report. |
 | Restore H1 | Demo | Restart `python server.py` with no `--max-age`, so the default of 60 s is used again. |
+| Proxy and server console logs | R7 | Copy `evidence\proxy.log` from H2 (written by `Tee-Object` when the proxy was started) and any saved server log from H1 into `evidence/`. They show the proxy's side of each failure, e.g. "Connection lost" and the 502/504 lines. |
+| Remove the ping firewall rule | After the demo | On H1 and H2: `Remove-NetFirewallRule -DisplayName "CacheNet ping"` |
 | Contributions table | Report | Fill in and get it signed by all 4 members. |
 
 ## Hosts (for R3 and the IP plan)
@@ -80,7 +82,7 @@ The network diagram (`evidence/network_diagram_R3.drawio`), the hosts table abov
   - at least 2 conditions compared, as a table and a graph
   - an explanation using d_nodal = d_proc + d_queue + d_trans + d_prop. This is already worked out in section 5 of the calculations file.
 - **Be upfront about two things:**
-  - ICMP ping was blocked by the hosts' firewalls, so RTT is the TCP connect time.
+  - RTT is the TCP connect time (7.0 ms). ICMP ping (`results/ping_H3_20261124.csv`) agrees when the radios are awake (median 6 ms), but 29 of 80 pings took 64–86 ms because an idle laptop's Wi-Fi was in power-save mode. That is queueing at the access point; the explanation is in section 2 of the calculations file.
   - Two runs of "persistent, warm cache" are Wi-Fi outliers, so that row uses the median.
 
 ### 7. Design tensions (Section 6: at least 3; this section carries a lot of marks)
@@ -132,6 +134,47 @@ Kurose & Ross, *Computer Networking: A Top-Down Approach* (the lecture textbook)
 Code (repository link or archive) and the AI-assistance declaration.
 
 ---
+
+## All data files
+
+All of these come from the three-host setup (H1 192.168.1.103, H2 192.168.1.63, H3 192.168.1.11).
+
+**`evidence/`: screenshots**
+
+| File | Shows | Report section |
+|---|---|---|
+| `H1(server)_R3.png`, `H2(proxy)_R3.jpg`, `H3(client)_R3.png` | `ipconfig` of each host | R3 |
+| `network_diagram_R3.drawio` | Network diagram (export as PNG) | R3 |
+| `server_R3.png`, `proxy_R3.png` | Origin and proxy starting on their hosts | R3 |
+| `GET1_R3.png`, `GET2_R3.png`, `GET_proxy_R3.png`, `GET_server_R3.png` | One request seen at client, proxy and origin (MISS then HIT) | R3, R1 |
+| `Packet1_R5.png`, `Packet2_R5.png`, `stream_R5.png` | Wireshark: one packet's layers, and the CNTP stream | R5 |
+| `R7-i.png` … `R7-v.png` | Client-side failures: 408, mid-transfer reset, 400, 505, 405 | R7 |
+| `R7-vi.png` | Evidence log: 502 origin down, 504 slow origin, proxy unreachable, recovery | R7 |
+
+**`results/`: measurements**
+
+| File | Contents | Report section |
+|---|---|---|
+| `R6_calculations.md` | Every table and worked calculation, ready to condense | R6, Section 6, Section 7 |
+| `bench_wifi_20261124_161538_raw.csv` | Every benchmark run (10 per test) | R6 |
+| `bench_wifi_20261124_161538_summary.csv` | Mean, SD, min, max per test | R6 |
+| `ping_H3_20261124.csv` | ICMP ping from H3 to H2 and H1, 2 runs × 20 | R6 (RTT) |
+| `wire_bytes_20261124_162110.csv` | Frames and bytes on the wire per scenario | Section 7, R5 |
+| `wire_bytes_20261124_162110.pcapng` | The capture behind it (opens in Wireshark) | R5, Section 7 |
+| `ttl_summary.csv` | Hit ratio per TTL (0, 5, 30, 60, 120 s) | Section 6 |
+| `ttl_<T>_..._raw.csv` (5 files) | Every request in each TTL run | Section 6 |
+
+**`results/plots/`: graphs**
+
+| File | Graph |
+|---|---|
+| `r6_page_fetch.png` | Page fetch: persistent vs non-persistent, warm and cold cache |
+| `r6_small_object_miss_hit.png` | Small object: MISS vs HIT |
+| `r6_large_object_time.png` | Large object transfer time: MISS vs HIT |
+| `r6_throughput.png` | Throughput: MISS vs HIT |
+| `r6_rtt.png` | TCP connect RTT and CNTP RTT |
+| `r6_ttl.png` | Hit ratio vs TTL, measured and model |
+| `r6_summary.csv` | The numbers behind the R6 graphs |
 
 ## Reproducing any number
 Run these on H3 with Python 3.12 and matplotlib, with `server.py` running on H1 and `proxy.py` on H2:

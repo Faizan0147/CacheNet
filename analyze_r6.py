@@ -64,6 +64,7 @@ def main():
     ap.add_argument("--bench", default=newest(os.path.join("results", "bench_wifi_*_raw.csv")))
     ap.add_argument("--wire", default=newest(os.path.join("results", "wire_bytes_*.csv")))
     ap.add_argument("--ttl", default=os.path.join("results", "ttl_summary.csv"))
+    ap.add_argument("--ping", default=newest(os.path.join("results", "ping_*.csv")))
     ap.add_argument("--link-mbps", type=float, default=72.2, help="Wi-Fi PHY rate from 'netsh wlan show interfaces'")
     ap.add_argument("--users", type=int, default=10000, help="population for the Section 7 projection")
     ap.add_argument("--views-per-day", type=int, default=50, help="page views per user per day")
@@ -102,14 +103,39 @@ def main():
     app = get("App RTT (HEAD, open conn)", "cached")
     rtt = con["median"]
     w("## 2. Round-trip time (R6)\n")
-    w("ICMP ping to H1 and H2 is blocked by their Windows firewalls (100% loss), so RTT is measured at the "
-      "transport layer: `connect()` returns when the SYN-ACK arrives, i.e. after exactly one round trip.\n")
+    w("RTT is measured at the transport layer: `connect()` returns when the SYN-ACK arrives, i.e. after exactly "
+      "one round trip. ICMP ping (below) is the independent cross-check.\n")
     w(f"- TCP connect H3 -> H2: mean **{f(con['mean'])} ms ± {f(con['sd'])} ms** (median {f(con['median'])} ms, n = {con['n']}).")
     w(f"- CNTP round trip (HEAD of a cached object on an open connection): mean **{f(app['mean'])} ± {f(app['sd'])} ms** "
       f"(median {f(app['median'])} ms).")
     w(f"- Application processing at the proxy ≈ CNTP RTT − TCP RTT = {f(app['median'])} − {f(con['median'])} = "
       f"**{f(app['median'] - con['median'])} ms** (medians; parsing, cache lookup and building the reply in Python).")
     w(f"- RTT used in the delay model below: median TCP connect = **{f(rtt)} ms**.\n")
+    if a.ping and os.path.exists(a.ping):
+        groups = OrderedDict()
+        with open(a.ping, newline="", encoding="utf-8-sig") as fh:
+            for r in csv.DictReader(fh):
+                groups.setdefault((r["run"], r["role"], r["target"]), []).append(float(r["rtt_ms"]))
+        w("**ICMP ping from H3** (`Test-Connection`, 20 echo requests per run):\n")
+        w("| Run | Target | n | Mean (ms) | SD | Median | Min | Max | Pings > 50 ms |")
+        w("|---|---|---|---|---|---|---|---|---|")
+        allv = []
+        for (run, role, ip), v in groups.items():
+            s = describe(v)
+            allv += v
+            slow = sum(1 for x in v if x > 50)
+            w(f"| {run} | {role} ({ip}) | {s['n']} | {f(s['mean'])} | {f(s['sd'])} | {f(s['median'])} | "
+              f"{f(s['min'],0)} | {f(s['max'],0)} | {slow} of {len(v)} |")
+        fast = [x for x in allv if x <= 50]
+        slow = [x for x in allv if x > 50]
+        w("")
+        w(f"The ping times are bimodal. {len(fast)} of {len(allv)} pings took {f(min(fast),0)}–{f(max(fast),0)} ms "
+          f"(median {f(statistics.median(fast))} ms), matching the TCP connect RTT, while {len(slow)} took "
+          f"{f(min(slow),0)}–{f(max(slow),0)} ms. The slow ones come in bursts when a laptop has been idle: its Wi-Fi "
+          "radio is in power-save mode, so the access point buffers the frame until the station wakes at the next "
+          "beacon (beacon interval ≈ 100 ms). In the delay model that is **queueing delay at the AP**, not "
+          "propagation or transmission. During the benchmark the hosts were busy and awake, which is why its RTT "
+          "is the low mode. A wired LAN or disabling Wi-Fi power saving would remove the slow mode.\n")
 
     # ------------------------------------------------------------------ throughput
     w("## 3. Application-level throughput (R6)\n")
