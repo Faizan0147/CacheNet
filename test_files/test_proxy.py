@@ -170,6 +170,10 @@ def main():
                                (HALF_PORT,502,"Incomplete origin response returns 502")]:
         proxy.ORIGIN_PORT=port
         st,_,_=request(b"GET",b"/x");           check(name,st==expected)
+    proxy.ORIGIN_HOST="10.255.255.1" #non-routable: SYNs are dropped, like a firewalled origin laptop
+    start=time.time(); st,_,_=request(b"GET",b"/x"); took=time.time()-start
+    check("Unreachable origin host returns 502 within ORIGIN_TIMEOUT",st==502 and took<proxy.ORIGIN_TIMEOUT+1,f"(after {took:.1f}s)")
+    proxy.ORIGIN_HOST="127.0.0.1"
     proxy.ORIGIN_PORT=HTTP_PORT
     st,_,_=request(b"GET",b"/z")
     st2,_,_=request(b"GET",b"/z");              check("Non-CNTP origin response returns 502 and is not cached",st==st2==502)
