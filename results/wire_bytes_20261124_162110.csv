@@ -1,0 +1,21 @@
+scenario,run,frames,bytes,payload,control_frames,control_bytes,connections,up_bytes,down_bytes
+"page, persistent",1,15,1986,1152,7,402,1,744,1242
+"page, persistent",2,15,1986,1152,7,402,1,744,1242
+"page, persistent",3,15,1986,1152,7,402,1,744,1242
+"page, persistent",4,15,1986,1152,7,402,1,744,1242
+"page, persistent",5,15,1986,1152,7,402,1,744,1242
+"page, non-persistent",1,36,3162,1122,28,1608,4,1413,1749
+"page, non-persistent",2,36,3162,1122,28,1608,4,1413,1749
+"page, non-persistent",3,36,3162,1122,28,1608,4,1413,1749
+"page, non-persistent",4,36,3162,1122,28,1608,4,1413,1749
+"page, non-persistent",5,36,3162,1122,28,1608,4,1413,1749
+object /large.txt,1,92,205158,200166,45,2454,1,2459,202699
+object /large.txt,2,87,204888,200166,42,2292,1,2297,202591
+object /large.txt,3,112,206238,200166,48,2616,1,2621,203617
+object /large.txt,4,80,204510,200166,36,1968,1,1973,202537
+object /large.txt,5,93,205212,200166,40,2184,1,2189,203023
+object /index.html,1,9,721,211,7,402,1,354,367
+object /index.html,2,9,721,211,7,402,1,354,367
+object /index.html,3,9,721,211,7,402,1,354,367
+object /index.html,4,9,721,211,7,402,1,354,367
+object /index.html,5,9,721,211,7,402,1,354,367

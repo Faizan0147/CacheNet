@@ -26,6 +26,7 @@ OUT = os.path.join("results", "plots")
 # Categorical slots in fixed order (validated light-mode palette): dataset 1 blue, dataset 2 orange, ...
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#6250d6"]
 INK, INK_2, GRID = "#1f1f1e", "#52514e", "#e6e5e0"
+MEDIAN = "#eb6834"
 
 
 def pick_files(args):
@@ -84,14 +85,16 @@ def grouped(data, rows, title, ylabel, filename, value=lambda c: c["ms"], note=N
             ax.bar(x, s["mean"], width * 0.86, color=color, alpha=0.9, zorder=2,
                    label=label if xi == 0 else None)
             ax.errorbar(x, s["mean"], yerr=s["stdev"], color=INK, capsize=3, lw=1, zorder=3)
+            ax.hlines(s["median"], x - width * 0.43, x + width * 0.43, color=MEDIAN, lw=2.2, zorder=5)
             ax.scatter([x] * len(vals), vals, s=12, facecolor="white", edgecolor=INK, lw=0.7, zorder=4)
-            ax.annotate(f"{s['mean']:.1f}", (x, max(s["mean"] + s["stdev"], s["max"])), xytext=(0, 5),
+            ax.annotate(f"mean {s['mean']:.1f}\nmedian {s['median']:.1f}", (x, max(s["mean"] + s["stdev"], s["max"])),
+                        xytext=(0, 5),
                         textcoords="offset points", ha="center", fontsize=7.5, color=INK_2)
     ax.set_xticks(range(len(rows)))
     ax.set_xticklabels([r[2] for r in rows], fontsize=9, color=INK)
     ax.set_ylabel(ylabel, fontsize=9, color=INK_2)
     ax.set_title(title, fontsize=11, color=INK, loc="left")
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(0, ax.get_ylim()[1] * 1.15)  # headroom for the mean/median labels
     ax.grid(axis="y", color=GRID, lw=0.8, zorder=0)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
@@ -100,7 +103,7 @@ def grouped(data, rows, title, ylabel, filename, value=lambda c: c["ms"], note=N
     ax.tick_params(colors=INK_2, labelsize=8)
     if len(labels) > 1:
         ax.legend(frameon=False, fontsize=8, title="Network condition", title_fontsize=8)
-    caption = "Bar = mean, error bar = ±1 standard deviation, dots = individual runs."
+    caption = "Bar = mean, orange line = median, error bar = ±1 standard deviation, dots = individual runs."
     fig.text(0.01, 0.01, caption + (" " + note if note else ""), fontsize=7, color=INK_2)
     fig.tight_layout(rect=(0, 0.04, 1, 1))
     path = os.path.join(OUT, filename)

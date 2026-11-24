@@ -1,21 +1,11 @@
 label,test,condition,runs,mean_ms,median_ms,stdev_ms,min_ms,max_ms,mean_bytes,mean_mbps
-wifi,TCP connect (~1 RTT),client->proxy,5,16.22,9.59,12.18,6.63,34.16,0,
-wifi,"App RTT (HEAD, open conn)",cached,5,7.64,4.89,6.08,4.34,18.48,115,
-wifi,Object /index.html,MISS,5,50.15,41.89,31.82,24.14,102.61,141,
-wifi,Object /index.html,HIT,5,26.59,30.55,12.9,13.2,42.45,140,
-wifi,Throughput /large.txt,MISS,5,280.13,261.27,71.46,217.34,402.89,200096,5.96
-wifi,Throughput /large.txt,HIT,5,126.69,124.09,16.87,110.99,154.21,200095,12.8
-wifi,Page fetch (4 objects),"persistent, warm cache",5,57.89,60.41,7.08,49.75,65.77,853,
-wifi,Page fetch (4 objects),"non-persistent, warm cache",5,130.69,123.13,55.54,82.46,224.33,838,
-wifi,Page fetch (4 objects),"persistent, cold cache",5,159.7,121.47,112.79,91.38,359.96,857,
-wifi,Page fetch (4 objects),"non-persistent, cold cache",5,210.22,194.06,48.73,169.72,287.7,842,
-wired,TCP connect (~1 RTT),client->proxy,5,29.49,14.49,35.2,5.16,90.82,0,
-wired,"App RTT (HEAD, open conn)",cached,5,6.72,6.24,1.42,5.36,8.45,115,
-wired,Object /index.html,MISS,5,130.46,129.07,13.87,110.66,148.96,141,
-wired,Object /index.html,HIT,5,27.45,26.11,14.07,13.96,49.26,140,
-wired,Throughput /large.txt,MISS,5,331.82,296.01,66.43,281.34,436.83,200096,4.96
-wired,Throughput /large.txt,HIT,5,151.41,146.47,35.73,112.69,210.13,200095,11.0
-wired,Page fetch (4 objects),"persistent, warm cache",5,54.55,60.1,13.3,37.05,69.97,853,
-wired,Page fetch (4 objects),"non-persistent, warm cache",5,169.09,185.71,24.55,140.08,187.68,838,
-wired,Page fetch (4 objects),"persistent, cold cache",5,179.98,150.2,79.84,124.9,321.21,857,
-wired,Page fetch (4 objects),"non-persistent, cold cache",5,314.98,331.24,66.52,212.2,380.37,842,
+wifi,TCP connect (~1 RTT),client->proxy,10,7.0,6.45,2.09,4.76,11.46,0,
+wifi,"App RTT (HEAD, open conn)",cached,10,7.65,6.93,2.55,5.25,13.04,115,
+wifi,Object /index.html,MISS,10,27.34,28.42,4.86,19.92,32.45,140,
+wifi,Object /index.html,HIT,10,14.42,14.12,2.46,11.63,19.78,139,
+wifi,Throughput /large.txt,MISS,10,262.0,250.43,56.83,205.77,385.64,200096,6.33
+wifi,Throughput /large.txt,HIT,10,105.31,104.17,5.37,99.04,115.64,200095,15.24
+wifi,Page fetch (4 objects),"persistent, warm cache",10,66.97,32.86,72.82,27.38,224.53,852,
+wifi,Page fetch (4 objects),"non-persistent, warm cache",10,65.63,59.96,25.01,44.82,129.55,837,
+wifi,Page fetch (4 objects),"persistent, cold cache",10,67.38,67.16,6.92,58.31,78.87,856,
+wifi,Page fetch (4 objects),"non-persistent, cold cache",10,113.04,110.78,8.86,105.04,134.62,841,

@@ -1,0 +1,11 @@
+label,test,condition,runs,mean_ms,median_ms,stdev_ms,min_ms,max_ms,mean_bytes,mean_throughput_mbps
+wifi,TCP connect (~1 RTT),client->proxy,10,7.004,6.453,2.091,4.757,11.464,0,
+wifi,"App RTT (HEAD, open conn)",cached,10,7.651,6.933,2.546,5.245,13.043,115,0.12
+wifi,Object /index.html,MISS,10,27.337,28.422,4.856,19.923,32.453,140,0.041
+wifi,Object /index.html,HIT,10,14.421,14.121,2.463,11.627,19.776,139,0.077
+wifi,Throughput /large.txt,MISS,10,261.999,250.432,56.834,205.767,385.638,200096,6.11
+wifi,Throughput /large.txt,HIT,10,105.309,104.167,5.369,99.036,115.639,200095,15.201
+wifi,Page fetch (4 objects),"persistent, warm cache",10,66.973,32.859,72.82,27.376,224.534,852,0.102
+wifi,Page fetch (4 objects),"non-persistent, warm cache",10,65.629,59.956,25.014,44.816,129.546,837,0.102
+wifi,Page fetch (4 objects),"persistent, cold cache",10,67.381,67.165,6.924,58.315,78.87,856,0.102
+wifi,Page fetch (4 objects),"non-persistent, cold cache",10,113.045,110.78,8.86,105.039,134.617,841,0.06
